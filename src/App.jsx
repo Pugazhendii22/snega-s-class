@@ -242,7 +242,7 @@ function PageHeading({ eyebrow, title, description, right }) {
   );
 }
 
-function App() {
+export function DemoApp() {
   const today = useMemo(() => todayInChennai(), []);
   const [view, setView] = useState('roll');
   const [dateISO, setDateISO] = useState(today);
@@ -608,5 +608,3 @@ function App() {
     </div>
   );
 }
-
-export default App;

@@ -5,7 +5,7 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // Teacher accounts must be provisioned by an administrator; clients cannot self-approve.
+    // Teacher accounts are provisioned out-of-band. A client can never self-approve.
     function activeTeacher() {
       return signedIn()
         && exists(/databases/$(database)/documents/teachers/$(request.auth.uid))
@@ -14,17 +14,33 @@ service cloud.firestore {
 
     function ownsClass(classId) {
       return activeTeacher()
+        && exists(/databases/$(database)/documents/classes/$(classId))
         && get(/databases/$(database)/documents/classes/$(classId)).data.teacherId == request.auth.uid;
     }
 
+    function validAttendance(data) {
+      return data.keys().hasAll(['classId', 'dateISO', 'rollType', 'statuses', 'takenBy', 'updatedAt'])
+        && data.keys().hasOnly(['classId', 'dateISO', 'rollType', 'statuses', 'takenBy', 'updatedAt'])
+        && data.classId is string
+        && data.dateISO is string
+        && data.dateISO.size() == 10
+        && data.rollType in ['MORNING', 'EVENING']
+        && data.statuses is map
+        && data.statuses.size() <= 100
+        && data.takenBy == request.auth.uid
+        && data.updatedAt == request.time;
+    }
+
     match /teachers/{teacherId} {
+      // Lets a signed-in teacher check only their own approval record.
       allow read: if signedIn() && request.auth.uid == teacherId;
       allow create, update, delete: if false;
     }
 
     match /classes/{classId} {
       allow read: if ownsClass(classId);
-      allow create: if activeTeacher() && request.resource.data.teacherId == request.auth.uid;
+      allow create: if activeTeacher()
+        && request.resource.data.teacherId == request.auth.uid;
       allow update: if ownsClass(classId)
         && request.resource.data.teacherId == resource.data.teacherId;
       allow delete: if false;
@@ -42,21 +58,19 @@ service cloud.firestore {
     match /attendance/{attendanceId} {
       allow read: if ownsClass(resource.data.classId);
       allow create: if ownsClass(request.resource.data.classId)
-        && request.resource.data.takenBy == request.auth.uid
-        && request.resource.data.rollType in ['MORNING', 'EVENING'];
+        && validAttendance(request.resource.data);
       allow update: if ownsClass(resource.data.classId)
         && request.resource.data.classId == resource.data.classId
-        && request.resource.data.takenBy == request.auth.uid
-        && request.resource.data.rollType in ['MORNING', 'EVENING'];
+        && request.resource.data.dateISO == resource.data.dateISO
+        && request.resource.data.rollType == resource.data.rollType
+        && validAttendance(request.resource.data);
       allow delete: if false;
     }
 
+    // Parent contact/consent records stay inaccessible until a separately reviewed
+    // server-controlled workflow is implemented. This app has no send endpoint.
     match /parents/{parentId} {
-      allow read: if ownsClass(resource.data.classId);
-      allow create: if ownsClass(request.resource.data.classId);
-      allow update: if ownsClass(resource.data.classId)
-        && request.resource.data.classId == resource.data.classId;
-      allow delete: if false;
+      allow read, create, update, delete: if false;
     }
 
     match /{document=**} {

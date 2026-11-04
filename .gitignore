@@ -1,7 +1,10 @@
 node_modules/
 dist/
 .env
+.env.local
 .env.*.local
+.env.production
+.env.*.production
 .firebase/
 *.log
 .DS_Store

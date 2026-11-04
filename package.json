@@ -9,14 +9,25 @@
     "dev:web": "node node_modules/vite/bin/vite.js --host 0.0.0.0",
     "build": "node node_modules/vite/bin/vite.js build",
     "start": "node server/index.js",
-    "test": "node --test"
+    "test": "node --test",
+    "test:rules": "npx --yes firebase-tools@14.18.0 emulators:exec --only firestore --project demo-namma-class -- \"node scripts/run-firestore-rules.js\""
   },
   "dependencies": {
     "express": "^4.21.2",
+    "firebase": "12.19.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "5.0.2",
     "vite": "^6.3.1"
+  },
+  "overrides": {
+    "@firebase/firestore": {
+      "@grpc/grpc-js": "^1.14.5"
+    }
+  },
+  "engines": {
+    "node": ">=20"
   }
 }
