@@ -14,7 +14,7 @@ Keep the Firebase project under the teacher/friend's Google account and on the S
 - `/classes/{classId}/attendance/{dateISO}_{MORNING|EVENING}` — one morning or evening roll per class/date. Writes use server timestamps and only occur when the teacher presses **Save roll**.
 - `/classes/{classId}/calendarOverrides/{dateISO}` — a teacher-edited holiday/working-day classification and label. The app bundles editable 2026 Puducherry/Karaikal public-holiday defaults and stores only teacher overrides in this subcollection; no automatic sync is performed.
 
-No student records are seeded automatically. No parent contacts, message sends, or automatic alerts are configured. Keep the existing preview-only messaging disabled.
+No student records are seeded automatically. No parent contacts, message sends, or automatic alerts are configured. The live workspace allows a teacher-only, unsent draft preview based solely on a complete saved roll; sending remains disabled.
 
 ## Before enabling the live attendance workspace
 

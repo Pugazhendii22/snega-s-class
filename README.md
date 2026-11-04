@@ -6,7 +6,7 @@ A practical class tool for a working class teacher at a girls' college in Chenna
 
 - **Demo mode:** 60 synthetic students and local-only attendance. No real names or contacts; nothing is sent.
 - **Live mode:** teacher Google sign-in and out-of-band approval, followed by a Firestore-backed class setup, two-column roster import, and explicit-save morning/evening attendance.
-- **No data is seeded automatically.** Student names are written only after the teacher creates a class and confirms a roster import. Parent contacts and message sending are not implemented.
+- **No student data is seeded automatically.** Student names are written only after the teacher creates a class and confirms a roster import. The live workspace can preview factual parent drafts from a complete saved roll; no parent contacts are stored and sending is not implemented.
 - **Saved-roll history:** morning/evening rolls are grouped by date, summarized, and expandable to inspect each recorded student status. The 75% warning is deliberately deferred until the college term dates, working-week pattern, and rule for differing AM/PM statuses are confirmed.
 - **Editable calendar data:** includes Puducherry/Karaikal 2026 public-holiday defaults plus official 2026 amendments. Teachers can override those dates or add college holidays/special working days per class; these edits are stored in Firestore. This is not a full term/weekday schedule and does not calculate attendance percentages.
 - **Teacher-triggered export:** prepare a saved-data snapshot and download attendance CSV or a portable JSON backup, including teacher calendar overrides. No cloud upload or restore flow is included yet.

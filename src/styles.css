@@ -859,3 +859,47 @@ body, .app-shell { background: #f4f9fd; }
   .live-calendar-edit-fields { grid-template-columns: 1fr; }
   .live-calendar-edit-label, .live-calendar-row-actions { grid-column: auto; }
 }
+.live-save-actions { display: flex; align-items: center; gap: 8px; }
+.live-message-backdrop { position: fixed; z-index: 1000; inset: 0; display: grid; place-items: center; padding: 18px; background: rgba(26, 40, 33, .44); backdrop-filter: blur(3px); }
+.live-message-modal { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; gap: 13px; width: min(820px, 100%); max-height: min(90vh, 820px); padding: 20px; overflow: hidden; border: 1px solid #e7ede8; border-radius: 15px; background: #fff; box-shadow: 0 22px 70px rgba(22, 40, 30, .24); }
+.live-message-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; }
+.live-message-heading h2 { margin: 4px 0; color: #2c4337; font-family: Manrope, 'DM Sans', sans-serif; font-size: 18px; font-weight: 800; letter-spacing: -.4px; }
+.live-message-heading p { margin: 0; color: #87938b; font-size: 9px; }
+.live-message-safety { padding: 10px 12px; border: 1px solid #e5ebdf; border-radius: 9px; color: #788577; background: #f7faf4; font-size: 9px; line-height: 1.5; }
+.live-message-safety strong { color: #4b7051; }
+.live-message-review-body { display: grid; grid-template-columns: minmax(180px, .72fr) minmax(0, 1.5fr); gap: 12px; min-height: 0; overflow: hidden; }
+.live-message-students { display: grid; align-content: start; gap: 5px; max-height: 100%; padding: 5px; overflow: auto; border: 1px solid #edf1ed; border-radius: 9px; background: #fbfcfb; }
+.live-message-students [role="listitem"] { min-width: 0; }
+.live-message-students button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px; border: 1px solid transparent; border-radius: 8px; color: #54675c; background: transparent; text-align: left; cursor: pointer; }
+.live-message-students button.active { border-color: #dbe8dc; background: #f2f7f0; }
+.live-message-students button > span:last-child { display: grid; gap: 2px; min-width: 0; }
+.live-message-students strong { overflow-wrap: anywhere; font-size: 9px; }
+.live-message-students small { color: #93a098; font-size: 8px; }
+.live-message-preview { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 8px; min-width: 0; min-height: 0; }
+.live-message-preview-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.live-message-preview-heading > div:first-child { display: grid; gap: 3px; min-width: 0; }
+.live-message-preview-heading strong { overflow-wrap: anywhere; color: #45594d; font-size: 10px; }
+.live-message-languages { display: flex; gap: 3px; padding: 3px; border: 1px solid #e9eeea; border-radius: 8px; background: #f7f9f7; }
+.live-message-languages button { min-width: 38px; height: 26px; border: 0; border-radius: 6px; color: #87938b; background: transparent; cursor: pointer; font: 700 9px 'DM Sans', sans-serif; }
+.live-message-languages button.active { color: #39674e; background: #eaf3e8; }
+.live-message-paper { min-height: 120px; margin: 0; padding: 14px; overflow: auto; border: 1px solid #e8eee9; border-radius: 9px; color: #596b60; background: #fbfcfb; font: 400 11px/1.75 'DM Sans', sans-serif; white-space: pre-wrap; overflow-wrap: anywhere; }
+.live-message-translation-note { margin: 0; color: #8b7849; font-size: 8px; line-height: 1.5; }
+.live-message-empty { display: grid; align-content: center; justify-items: center; min-height: 180px; padding: 20px; text-align: center; }
+.live-message-empty h3 { margin: 0 0 6px; color: #49664f; font-size: 13px; }
+.live-message-empty p { margin: 0; color: #87938a; font-size: 9px; }
+.live-message-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 11px; border-top: 1px solid #edf1ed; color: #87938b; font-size: 9px; }
+.live-message-footer button:disabled { opacity: .6; cursor: not-allowed; }
+@media (max-width: 700px) {
+  .live-message-backdrop { padding: 8px; }
+  .live-message-modal { gap: 10px; max-height: 94vh; padding: 14px; }
+  .live-message-review-body { grid-template-columns: 1fr; grid-template-rows: minmax(90px, .45fr) minmax(180px, 1fr); }
+  .live-message-students { grid-auto-flow: column; grid-auto-columns: minmax(145px, 1fr); grid-template-rows: 1fr; overflow-x: auto; overflow-y: hidden; }
+  .live-save-actions { flex-wrap: wrap; justify-content: flex-end; }
+}
+@media (max-width: 460px) {
+  .live-save-footer { align-items: flex-start; flex-direction: column; }
+  .live-save-actions { width: 100%; justify-content: space-between; }
+  .live-save-actions button { min-height: 34px; padding: 0 10px; font-size: 10px; }
+  .live-message-heading h2 { font-size: 15px; }
+  .live-message-footer { align-items: flex-start; flex-direction: column; }
+}

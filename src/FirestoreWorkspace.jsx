@@ -16,6 +16,7 @@ import {
 import { buildAttendanceCsv, buildJsonBackup, exportFilenameSlug } from './lib/exportFormats.js';
 import { buildRollStudentEntries, groupAttendanceHistory, summarizeSavedRoll } from './lib/attendanceHistory.js';
 import { mergePuducherryCalendar, PUDUCHERRY_CALENDAR_SOURCE } from './lib/puducherryCalendar.js';
+import { renderParentMessage } from '../shared/messages.js';
 import { parseRosterCsv } from './lib/rosterImport.js';
 
 const ROLL_TYPES = ['MORNING', 'EVENING'];
@@ -109,6 +110,62 @@ function HistoryRollCard({ roll, students }) {
   );
 }
 
+function ParentMessageReview({ absentStudents, leaveCount, dateISO, rollType, onClose }) {
+  const [selectedStudentId, setSelectedStudentId] = useState(absentStudents[0]?.id ?? '');
+  const [language, setLanguage] = useState('en');
+  const selectedStudent = absentStudents.find((student) => student.id === selectedStudentId) ?? absentStudents[0] ?? null;
+  let draft = '';
+  if (selectedStudent) {
+    try {
+      draft = renderParentMessage({
+        studentLabel: selectedStudent.displayName,
+        rollNo: selectedStudent.rollNo,
+        rollType,
+        dateISO,
+        language,
+      });
+    } catch {
+      draft = 'This draft could not be generated from the roster entry. Check the student name and roll number.';
+    }
+  }
+
+  useEffect(() => {
+    setSelectedStudentId(absentStudents[0]?.id ?? '');
+  }, [absentStudents]);
+  useEffect(() => {
+    const onKeyDown = (event) => { if (event.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
+
+  return (
+    <div className="live-message-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="live-message-modal" role="dialog" aria-modal="true" aria-labelledby="live-message-title">
+        <div className="live-message-heading">
+          <div><span className="live-eyebrow">HUMAN REVIEW · NO SEND</span><h2 id="live-message-title">Review unsent parent drafts</h2><p>{rollType === 'MORNING' ? 'Morning' : 'Evening'} roll · {displayDate(dateISO)}</p></div>
+          <button className="live-secondary-button" type="button" onClick={onClose} aria-label="Close message review">Close</button>
+        </div>
+        <div className="live-message-safety"><strong>Preview only.</strong> Nothing is sent, no parent contact details are stored, and only this saved roll is used. Students marked on leave are excluded.</div>
+        {absentStudents.length === 0 ? (
+          <div className="live-message-empty"><h3>No absence drafts for this saved roll</h3><p>{leaveCount ? `${leaveCount} student${leaveCount === 1 ? '' : 's'} marked on leave were excluded.` : 'No students were marked absent.'}</p></div>
+        ) : (
+          <div className="live-message-review-body">
+            <div className="live-message-students" role="list" aria-label="Students marked absent">
+              {absentStudents.map((student) => <div role="listitem" key={student.id}><button type="button" className={selectedStudent?.id === student.id ? 'active' : ''} onClick={() => setSelectedStudentId(student.id)}><span className="live-roll-badge">{student.rollNo}</span><span><strong>{student.displayName}</strong><small>Marked absent in this saved roll</small></span></button></div>)}
+            </div>
+            <div className="live-message-preview">
+              <div className="live-message-preview-heading"><div><span className="live-eyebrow">DRAFT PREVIEW</span><strong>{selectedStudent?.displayName}</strong></div><div className="live-message-languages" role="group" aria-label="Draft language"><button type="button" aria-pressed={language === 'en'} className={language === 'en' ? 'active' : ''} onClick={() => setLanguage('en')}>EN</button><button type="button" aria-pressed={language === 'ta'} className={language === 'ta' ? 'active' : ''} onClick={() => setLanguage('ta')}>தமிழ்</button></div></div>
+              <pre className="live-message-paper">{draft}</pre>
+              {language === 'ta' && <p className="live-message-translation-note">Tamil wording is a draft and must be reviewed by a native speaker before any live use.</p>}
+            </div>
+          </div>
+        )}
+        <div className="live-message-footer"><span>Sending is disabled in this build.</span><button className="live-primary-button" type="button" disabled title="Parent contact, consent, and send gates are not implemented">Send disabled</button></div>
+      </section>
+    </div>
+  );
+}
+
 export default function FirestoreWorkspace({ user, onSignOut }) {
   const [loadState, setLoadState] = useState('loading');
   const [classes, setClasses] = useState([]);
@@ -124,6 +181,7 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
   const [rollBusy, setRollBusy] = useState(false);
   const [rollDirty, setRollDirty] = useState(false);
   const [rollSavedAt, setRollSavedAt] = useState(null);
+  const [parentReviewOpen, setParentReviewOpen] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [isOnline, setIsOnline] = useState(() => typeof navigator === 'undefined' ? true : navigator.onLine);
@@ -171,6 +229,15 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
   }, [activeStudents, statuses]);
   const markedCount = activeStudents.length - counts.unmarked;
   const isComplete = activeStudents.length > 0 && counts.unmarked === 0;
+  const absentStudents = useMemo(
+    () => activeStudents.filter((student) => statuses[student.id] === 'absent'),
+    [activeStudents, statuses],
+  );
+  const leaveCount = useMemo(
+    () => activeStudents.filter((student) => statuses[student.id] === 'leave').length,
+    [activeStudents, statuses],
+  );
+  const canReviewParentDrafts = Boolean(rollSavedAt && !rollDirty && !rollBusy && isComplete);
   const visibleStudents = activeStudents.filter((student) => {
     const query = studentSearch.trim().toLocaleLowerCase('en-IN');
     return !query || String(student.rollNo).toLocaleLowerCase('en-IN').includes(query)
@@ -247,6 +314,7 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
       return undefined;
     }
     let cancelled = false;
+    setParentReviewOpen(false);
     setRollBusy(true);
     setError('');
     loadAttendance(selectedClass.id, dateISO, rollType)
@@ -291,6 +359,7 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
   }, []);
 
   useEffect(() => {
+    setParentReviewOpen(false);
     setBackupSnapshot(null);
     setBackupExportedAt(null);
     setBackupConsent(false);
@@ -844,7 +913,7 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
               )}
               <div className="live-save-footer">
                 <div className="live-save-caption">{rollSavedAt && !rollDirty ? `Saved to Firestore${rollSavedAt instanceof Date ? ` · ${rollSavedAt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : ''}` : rollDirty ? 'Unsaved changes on this screen' : isComplete ? 'Ready to save this roll' : `Mark ${counts.unmarked} more before saving`}</div>
-                <button className="live-primary-button" type="button" onClick={handleSaveRoll} disabled={!isOnline || !isComplete || !rollDirty || rollBusy || backupBusy || historyBusy || calendarBusy}>{rollBusy ? 'Saving…' : 'Save roll'}</button>
+                <div className="live-save-actions"><button className="live-secondary-button" type="button" onClick={() => setParentReviewOpen(true)} disabled={!canReviewParentDrafts} title={!canReviewParentDrafts ? 'Save a complete roll before reviewing message drafts' : 'Preview unsent messages for students marked absent'}>Review parent drafts</button><button className="live-primary-button" type="button" onClick={handleSaveRoll} disabled={!isOnline || !isComplete || !rollDirty || rollBusy || backupBusy || historyBusy || calendarBusy}>{rollBusy ? 'Saving…' : 'Save roll'}</button></div>
               </div>
             </section>
 
@@ -852,6 +921,7 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
           </>
         )}
       </div>
+      {parentReviewOpen && <ParentMessageReview absentStudents={absentStudents} leaveCount={leaveCount} dateISO={dateISO} rollType={rollType} onClose={() => setParentReviewOpen(false)} />}
     </LiveShell>
   );
 }
