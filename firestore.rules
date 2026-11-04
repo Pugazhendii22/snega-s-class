@@ -18,6 +18,34 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/classes/$(classId)).data.teacherId == request.auth.uid;
     }
 
+    function validClass(data) {
+      return data.keys().hasAll(['teacherId', 'name', 'section', 'yearLabel', 'active', 'createdAt'])
+        && data.keys().hasOnly(['teacherId', 'name', 'section', 'yearLabel', 'active', 'createdAt'])
+        && data.teacherId == request.auth.uid
+        && data.name is string
+        && data.name.size() > 0
+        && data.name.size() <= 80
+        && data.section is string
+        && data.section.size() <= 24
+        && data.yearLabel is string
+        && data.yearLabel.size() <= 40
+        && data.active == true
+        && data.createdAt == request.time;
+    }
+
+    function validStudent(data) {
+      return data.keys().hasAll(['rollNo', 'displayName', 'active', 'createdAt'])
+        && data.keys().hasOnly(['rollNo', 'displayName', 'active', 'createdAt'])
+        && data.rollNo is string
+        && data.rollNo.size() > 0
+        && data.rollNo.size() <= 24
+        && data.displayName is string
+        && data.displayName.size() > 0
+        && data.displayName.size() <= 120
+        && data.active == true
+        && data.createdAt == request.time;
+    }
+
     function validAttendance(data) {
       return data.keys().hasAll(['classId', 'dateISO', 'rollType', 'statuses', 'takenBy', 'updatedAt'])
         && data.keys().hasOnly(['classId', 'dateISO', 'rollType', 'statuses', 'takenBy', 'updatedAt'])
@@ -38,15 +66,34 @@ service cloud.firestore {
     }
 
     match /classes/{classId} {
-      allow read: if ownsClass(classId);
-      allow create: if activeTeacher()
-        && request.resource.data.teacherId == request.auth.uid;
-      allow update: if ownsClass(classId)
-        && request.resource.data.teacherId == resource.data.teacherId;
-      allow delete: if false;
+      allow get: if ownsClass(classId);
+      // The equality-filtered list query in the client is restricted to the signed-in teacher.
+      allow list: if activeTeacher() && resource.data.teacherId == request.auth.uid;
+      allow create: if activeTeacher() && validClass(request.resource.data);
+      // Class edits/archive are intentionally unavailable until a reviewed admin flow exists.
+      allow update, delete: if false;
 
       match /students/{studentId} {
-        allow read, create, update: if ownsClass(classId);
+        allow read: if ownsClass(classId);
+        allow create: if ownsClass(classId) && validStudent(request.resource.data);
+        // Editing/deactivation needs a deliberate roster-maintenance flow.
+        allow update, delete: if false;
+      }
+
+      // Attendance lives under its class so a teacher can safely check an empty
+      // date/session document before the first roll has been saved.
+      match /attendance/{attendanceId} {
+        allow read: if ownsClass(classId);
+        allow create: if ownsClass(classId)
+          && validAttendance(request.resource.data)
+          && request.resource.data.classId == classId
+          && attendanceId == request.resource.data.dateISO + '_' + request.resource.data.rollType;
+        allow update: if ownsClass(classId)
+          && request.resource.data.classId == resource.data.classId
+          && request.resource.data.dateISO == resource.data.dateISO
+          && request.resource.data.rollType == resource.data.rollType
+          && validAttendance(request.resource.data)
+          && attendanceId == request.resource.data.dateISO + '_' + request.resource.data.rollType;
         allow delete: if false;
       }
 

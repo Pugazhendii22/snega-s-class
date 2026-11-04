@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { DemoApp } from './App.jsx';
+import FirestoreWorkspace from './FirestoreWorkspace.jsx';
 import {
-  demoMode,
   firebaseConfigured,
   isApprovedTeacher,
   signInTeacherWithGoogle,
@@ -37,7 +36,6 @@ export default function FirebaseGate() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (demoMode) return undefined;
     if (!firebaseConfigured) {
       setSession({ status: 'config-error', user: null, error: 'Firebase Web app configuration is incomplete.' });
       return undefined;
@@ -73,8 +71,6 @@ export default function FirebaseGate() {
       unsubscribe();
     };
   }, []);
-
-  if (demoMode) return <DemoApp />;
 
   if (session.status === 'config-error') {
     return <GateCard eyebrow="SETUP REQUIRED" title="Firebase config is incomplete"><p>{session.error} Keep demo mode enabled until all Web app values are set.</p></GateCard>;
@@ -141,7 +137,7 @@ export default function FirebaseGate() {
           <button className="firebase-gate-button" type="button" onClick={recheckApproval} disabled={busy}>Check approval again</button>
           <button className="firebase-gate-secondary" type="button" onClick={handleSignOut} disabled={busy}>Sign out</button>
         </div>
-        <p className="firebase-gate-note">Attendance storage is not enabled yet; no demo roster is shown in live mode.</p>
+        <p className="firebase-gate-note">No roster or attendance data is accessible until the project owner approves this account.</p>
       </GateCard>
     );
   }
@@ -160,11 +156,5 @@ export default function FirebaseGate() {
     );
   }
 
-  return (
-    <GateCard eyebrow="TEACHER ACCOUNT APPROVED" title="Sign-in is working">
-      <p>Signed in as {session.user.email || 'the approved teacher'}. The next step is connecting the class roster and attendance records to Firestore. No attendance data has been written yet.</p>
-      {session.error && <div className="firebase-gate-error" role="alert">{session.error}</div>}
-      <button className="firebase-gate-secondary" type="button" onClick={handleSignOut} disabled={busy}>Sign out</button>
-    </GateCard>
-  );
+  return <FirestoreWorkspace user={session.user} onSignOut={handleSignOut} />;
 }

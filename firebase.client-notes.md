@@ -1,15 +1,32 @@
-# Firebase setup and integration status
+# Firebase client and Firestore status
 
-The teacher reports that the teacher-owned Firebase project, Web app, and Firestore database have been created. Keep the project ID and web config in local environment settings, not committed to the public repository. The React app is **not connected to it yet**: the UI remains in demo mode, attendance still uses browser local storage, and there is no sign-in UI or Firestore read/write flow.
+The React app now uses the teacher-owned Firebase Web app for Google sign-in and an approval gate. Approved teachers reach a Firestore-backed class/roster/attendance workspace. The public Web configuration belongs in build-time `VITE_FIREBASE_*` variables; these values are client-visible by design. Never put a Firebase Admin service-account key in the browser, Vercel, or GitHub.
 
-## Safe connection sequence
+## Project ownership and cost guardrails
 
-1. In Firebase Console, enable the teacher's chosen sign-in provider. Google sign-in is the recommended default for a single teacher using her own Google account.
-2. Copy the Web app configuration from **Project settings → General → Your apps** into a local, ignored `.env`; do not commit `.env`. Firebase Web config is client config, not an admin credential. Never put a service-account JSON/private key in the browser app or GitHub.
-3. Provision `/teachers/{uid}` out-of-band with `active: true` for the teacher's authenticated UID. Client rules intentionally reject unprovisioned accounts.
-4. Review `firestore.rules` against the final data model and run `npm run test:rules` (the local Firestore Emulator uses only a `demo-*` project ID) before `VITE_DEMO_MODE=false` or importing real class data. Current rules are still a starter baseline, not a production security audit.
-5. Keep parent messaging disabled. Firebase setup does not authorize sending messages; consent, contact verification, dedupe, quiet hours, review, and pilot gates remain required.
+Keep the Firebase project under the teacher/friend's Google account and on the Spark/free plan; this roster/attendance slice does not require enabling billing. The Firestore location has not been independently verified from the app. If choosing a location for a database not yet created, Mumbai (`asia-south1`) was recommended if offered; an existing database's location should be checked in Console rather than recreated. Do not enable paid billing or request Google passwords/service-account keys for this work.
 
-## SDK/toolchain note
+## Live data model
 
-The app uses Firebase JS SDK 12.19.0 to remain compatible with the project's Node 20/22 toolchains. A narrow npm override pins only the Firestore package's Node-only `@grpc/grpc-js` dependency to a patched release to clear current audit advisories. Re-run `npm audit`, production build, and browser-bundle checks when updating Firebase; remove the override once upstream Firestore accepts a patched gRPC range.
+- `/teachers/{uid}` — provisioned out-of-band by the project owner with `active: true`. Client writes are denied, so an account cannot self-approve.
+- `/classes/{classId}` — teacher-owned class metadata (`teacherId`, `name`, `section`, `yearLabel`, `active`, `createdAt`). The rules allow a narrowly defined create only; class updates/deletes are not available yet.
+- `/classes/{classId}/students/{studentId}` — roll number, display name, active flag, and creation timestamp. Rules reject extra fields (including contact details) and deny edits/deletes until a reviewed roster-maintenance flow exists. The explicit roster-import flow accepts only two CSV columns, uses a stable roll-derived document ID, and caps a class at 100 active students.
+- `/classes/{classId}/attendance/{dateISO}_{MORNING|EVENING}` — one morning or evening roll per class/date. Writes use server timestamps and only occur when the teacher presses **Save roll**.
+
+No student records are seeded automatically. No parent contacts, message sends, or automatic alerts are configured. Keep the existing preview-only messaging disabled.
+
+## Before enabling the live attendance workspace
+
+1. Review and publish the current `firestore.rules` to the teacher-owned Firebase project (Firebase Console → Firestore Database → Rules, confirm the selected project, replace with this file, then Publish). In addition to teacher self-read/approval rules, the updated rules include teacher-only class listing, strict class/roster schemas, nested class attendance reads/writes, and a safe read for a roll that has not yet been created.
+2. Run `npm test`, `npm run build`, and `npm run test:rules`. The Firestore Emulator suite uses only `demo-namma-class-rules` and synthetic records; it does not access production Firebase.
+3. Set all `VITE_FIREBASE_*` values from the teacher-owned Firebase Web app and set `VITE_DEMO_MODE=false` for the intended Vercel environment. Build a new deployment after changing environment variables.
+4. In the Firebase Console, provision the approved teacher document out-of-band. The Console is sufficient; an Admin SDK/service-account key is not needed for this manual step.
+5. Create the class and import a roster only after confirming institutional permission to store those student names in the teacher-owned project. Do not include parent phone numbers in roster CSV.
+
+## Known limits of this first Firestore slice
+
+- No offline write queue or conflict-resolution flow.
+- No class archive, student deletion, or class deletion (by design; rules deny deletion).
+- No attendance percentage/75% history calculation yet; it needs a confirmed denominator/term calendar.
+- No export/backup workflow yet.
+- Parent messaging remains disabled; consent/contact verification, human review, deduplication, quiet hours, silent pilot, and a tested panic switch remain separate launch gates.
