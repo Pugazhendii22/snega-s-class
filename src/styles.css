@@ -727,7 +727,7 @@ body, .app-shell { background: #f4f9fd; }
   .live-quiet-button { min-height: 33px; padding: 0 9px; font-size: 10px; }
   .live-content { padding: 25px 13px 40px; }
   .live-heading-row { align-items: flex-start; flex-direction: column; gap: 12px; }
-  .live-heading-actions { width: 100%; justify-content: flex-end; }
+  .live-heading-actions { width: 100%; justify-content: flex-start; flex-wrap: wrap; }
   .live-controls { align-items: flex-start; flex-direction: column; }
   .live-roll-switch { width: 100%; }
   .live-roll-switch button { flex: 1; justify-content: center; padding: 0 7px; }
@@ -775,4 +775,87 @@ body, .app-shell { background: #f4f9fd; }
   .live-topbar-right { gap: 6px; }
   .pwa-install-button.compact { min-height: 30px; gap: 4px; padding: 0 7px; font-size: 8px; }
   .pwa-install-dialog { padding: 23px 19px; }
+}
+.live-quiet-button.current { color: #2c6955; border-color: #cfe1d1; background: #f1f7ee; }
+.live-backup-content { display: grid; gap: 15px; padding: 0 21px 22px; }
+.live-backup-warning { display: grid; gap: 5px; padding: 12px 13px; border: 1px solid #eedfbc; border-radius: 9px; color: #796f57; background: #fffaf0; font-size: 10px; line-height: 1.5; }
+.live-backup-warning strong { color: #765f2c; font-size: 10px; }
+.live-backup-consent { padding: 2px 0; }
+.live-backup-foot { max-width: 780px; color: #87938b; font-size: 9px; line-height: 1.55; }
+@media (max-width: 700px) {
+  .live-backup-content { padding: 0 13px 18px; }
+}
+.live-history-content { display: grid; gap: 13px; padding: 0 21px 21px; }
+.live-history-note { padding: 11px 12px; border: 1px solid #e4ebdf; border-radius: 9px; color: #728172; background: #f7faf4; font-size: 9px; line-height: 1.5; }
+.live-history-note strong { color: #496c50; }
+.live-history-days { display: grid; gap: 12px; }
+.live-history-day { padding: 14px; border: 1px solid #e8eee9; border-radius: 10px; background: #fbfcfb; }
+.live-history-day-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-bottom: 10px; }
+.live-history-day-heading h3 { margin: 0; color: #344a40; font-family: Manrope, 'DM Sans', sans-serif; font-size: 13px; font-weight: 800; letter-spacing: -.2px; }
+.live-history-rolls { display: grid; gap: 7px; }
+.live-history-roll { display: grid; gap: 8px; padding: 11px 12px; border: 1px solid #edf1ed; border-radius: 9px; background: #fff; }
+.live-history-roll-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: #486357; font-size: 10px; }
+.live-history-roll-title time { color: #96a199; font-size: 9px; }
+.live-history-counts { display: flex; flex-wrap: wrap; gap: 6px; }
+.live-history-counts span { display: inline-flex; align-items: center; min-height: 24px; padding: 0 8px; border: 1px solid #e9eee9; border-radius: 7px; color: #829087; background: #f9fbf9; font-size: 9px; }
+.live-history-counts .present { color: #4d7957; border-color: #d9e8d8; background: #f2f8ef; }
+.live-history-counts .absent { color: #a3534a; border-color: #f0dcd6; background: #fff5f2; }
+.live-history-counts .leave { color: #96773a; border-color: #eee4c9; background: #fffaed; }
+@media (max-width: 700px) {
+  .live-history-content { padding: 0 13px 18px; }
+  .live-history-day { padding: 11px; }
+  .live-history-day-heading h3 { font-size: 11px; }
+}
+.live-history-expand { justify-self: start; padding: 2px 0; border: 0; color: #527b5c; background: transparent; cursor: pointer; font-size: 9px; font-weight: 800; }
+.live-history-expand:hover { color: #315e3a; text-decoration: underline; }
+.live-history-expand:focus-visible { outline: 2px solid #84a989; outline-offset: 3px; border-radius: 3px; }
+.live-history-student-list { display: grid; gap: 5px; max-height: 260px; margin: 0; padding: 8px 0 0; overflow: auto; list-style: none; border-top: 1px solid #eff2ef; }
+.live-history-student-list li { display: flex; justify-content: space-between; align-items: center; gap: 10px; min-height: 28px; color: #67766c; font-size: 9px; }
+.live-history-student-list li > span { overflow-wrap: anywhere; }
+.live-history-student-status { flex: 0 0 auto; padding: 4px 7px; border-radius: 6px; background: #f3f7f3; color: #748178; font-size: 8px; font-weight: 800; }
+.live-history-student-status.present { color: #4d7957; background: #f2f8ef; }
+.live-history-student-status.absent { color: #a3534a; background: #fff5f2; }
+.live-history-student-status.leave { color: #96773a; background: #fffaed; }
+.live-calendar-content { display: grid; gap: 13px; padding: 0 21px 21px; }
+.live-calendar-year-tools { display: flex; align-items: center; gap: 9px; }
+.live-calendar-year-tools strong { min-width: 48px; color: #45614d; text-align: center; font-size: 15px; }
+.live-calendar-year-tools .live-secondary-button { min-width: 34px; padding: 7px 10px; font-size: 16px; }
+.live-calendar-note { padding: 11px 12px; border: 1px solid #e5ebde; border-radius: 9px; color: #718071; background: #f7faf4; font-size: 9px; line-height: 1.6; }
+.live-calendar-note strong { color: #4c7052; }
+.live-calendar-note a, .live-calendar-source a { color: #527b5c; font-weight: 800; text-underline-offset: 2px; }
+.live-calendar-add { display: grid; gap: 13px; padding: 15px; border: 1px solid #e8ede8; border-radius: 10px; background: #fbfcfb; }
+.live-calendar-add h3 { margin: 0 0 4px; color: #3e5749; font-size: 12px; }
+.live-calendar-add p { margin: 0; color: #88948c; font-size: 9px; line-height: 1.5; }
+.live-calendar-add-fields { display: grid; grid-template-columns: 1.1fr 1fr 1.7fr auto; align-items: end; gap: 9px; }
+.live-calendar-add-fields label, .live-calendar-edit-fields label { display: grid; gap: 5px; min-width: 0; color: #849087; font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; }
+.live-calendar-add-fields input, .live-calendar-add-fields select, .live-calendar-edit-fields input, .live-calendar-edit-fields select { width: 100%; min-height: 34px; padding: 7px 9px; border: 1px solid #e5ebe6; border-radius: 7px; outline: 0; color: #4d6255; background: #fff; font: 500 10px 'DM Sans', sans-serif; text-transform: none; letter-spacing: normal; }
+.live-calendar-add-fields input:focus, .live-calendar-add-fields select:focus, .live-calendar-edit-fields input:focus, .live-calendar-edit-fields select:focus { border-color: #93b69a; box-shadow: 0 0 0 3px #edf5ed; }
+.live-calendar-add-fields .live-primary-button { min-height: 34px; padding: 8px 12px; white-space: nowrap; }
+.live-calendar-list { display: grid; gap: 8px; }
+.live-calendar-row { display: grid; gap: 8px; padding: 13px; border: 1px solid #e8eee9; border-radius: 9px; background: #fff; }
+.live-calendar-row-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.live-calendar-row-heading > strong { color: #425a4d; font-size: 10px; }
+.live-calendar-kind { padding: 4px 7px; border-radius: 6px; font-size: 8px; font-weight: 800; }
+.live-calendar-kind.holiday { color: #a45a50; background: #fff3ef; }
+.live-calendar-kind.working { color: #4e7858; background: #f1f8ef; }
+.live-calendar-source { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; color: #95a097; font-size: 8px; }
+.live-calendar-source a { font-size: 8px; }
+.live-calendar-baseline { color: #849087; font-size: 8px; }
+.live-calendar-edit-fields { display: grid; grid-template-columns: 1fr 2fr auto; align-items: end; gap: 9px; }
+.live-calendar-row-actions { display: flex; align-items: center; gap: 6px; }
+.live-calendar-row-actions .live-primary-button, .live-calendar-row-actions .live-secondary-button { min-height: 34px; padding: 7px 10px; }
+.live-calendar-foot { color: #919c94; font-size: 8px; line-height: 1.5; }
+@media (max-width: 700px) {
+  .live-calendar-content { padding: 0 13px 18px; }
+  .live-calendar-add-fields { grid-template-columns: 1fr 1fr; }
+  .live-calendar-add-label { grid-column: 1 / -1; }
+  .live-calendar-edit-fields { grid-template-columns: 1fr 1fr; }
+  .live-calendar-edit-label { grid-column: 1 / -1; }
+  .live-calendar-row-actions { grid-column: 1 / -1; }
+}
+@media (max-width: 420px) {
+  .live-calendar-add-fields { grid-template-columns: 1fr; }
+  .live-calendar-add-label { grid-column: auto; }
+  .live-calendar-edit-fields { grid-template-columns: 1fr; }
+  .live-calendar-edit-label, .live-calendar-row-actions { grid-column: auto; }
 }

@@ -12,12 +12,13 @@ Keep the Firebase project under the teacher/friend's Google account and on the S
 - `/classes/{classId}` — teacher-owned class metadata (`teacherId`, `name`, `section`, `yearLabel`, `active`, `createdAt`). The rules allow a narrowly defined create only; class updates/deletes are not available yet.
 - `/classes/{classId}/students/{studentId}` — roll number, display name, active flag, and creation timestamp. Rules reject extra fields (including contact details) and deny edits/deletes until a reviewed roster-maintenance flow exists. The explicit roster-import flow accepts only two CSV columns, uses a stable roll-derived document ID, and caps a class at 100 active students.
 - `/classes/{classId}/attendance/{dateISO}_{MORNING|EVENING}` — one morning or evening roll per class/date. Writes use server timestamps and only occur when the teacher presses **Save roll**.
+- `/classes/{classId}/calendarOverrides/{dateISO}` — a teacher-edited holiday/working-day classification and label. The app bundles editable 2026 Puducherry/Karaikal public-holiday defaults and stores only teacher overrides in this subcollection; no automatic sync is performed.
 
 No student records are seeded automatically. No parent contacts, message sends, or automatic alerts are configured. Keep the existing preview-only messaging disabled.
 
 ## Before enabling the live attendance workspace
 
-1. Review and publish the current `firestore.rules` to the teacher-owned Firebase project (Firebase Console → Firestore Database → Rules, confirm the selected project, replace with this file, then Publish). In addition to teacher self-read/approval rules, the updated rules include teacher-only class listing, strict class/roster schemas, nested class attendance reads/writes, and a safe read for a roll that has not yet been created.
+1. Review and publish the current `firestore.rules` to the teacher-owned Firebase project (Firebase Console → Firestore Database → Rules, confirm the selected project, replace with this file, then Publish). In addition to teacher self-read/approval rules, the updated rules include teacher-only class listing, strict class/roster schemas, nested class attendance reads/writes, and class-scoped calendar override reads/writes.
 2. Run `npm test`, `npm run build`, and `npm run test:rules`. The Firestore Emulator suite uses only `demo-namma-class-rules` and synthetic records; it does not access production Firebase.
 3. Set all `VITE_FIREBASE_*` values from the teacher-owned Firebase Web app and set `VITE_DEMO_MODE=false` for the intended Vercel environment. Build a new deployment after changing environment variables.
 4. In the Firebase Console, provision the approved teacher document out-of-band. The Console is sufficient; an Admin SDK/service-account key is not needed for this manual step.
@@ -31,6 +32,6 @@ The app has a standalone manifest, generated home-screen icons, and a production
 
 - No offline write queue or conflict-resolution flow.
 - No class archive, student deletion, or class deletion (by design; rules deny deletion).
-- No attendance percentage/75% history calculation yet; it needs a confirmed denominator/term calendar.
-- No export/backup workflow yet.
+- A saved-roll history timeline is available and groups AM/PM rolls by day. Editable Puducherry 2026 public-holiday defaults are included, but this is not a complete college calendar: term dates and the normal working-week pattern still need teacher confirmation. The 75% warning also waits for the day-level rule when AM/PM statuses differ.
+- Teacher-triggered CSV and versioned JSON downloads are available. CSV contains attendance; JSON includes class/roster/saved attendance and teacher calendar overrides, but not the bundled holiday defaults. Downloads are local only, not automated cloud backups; there is no restore workflow yet. Store files only in an approved, access-controlled location.
 - Parent messaging remains disabled; consent/contact verification, human review, deduplication, quiet hours, silent pilot, and a tested panic switch remain separate launch gates.

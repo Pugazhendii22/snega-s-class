@@ -2,12 +2,20 @@ import React, { useEffect, useMemo, useState } from 'react';
 import PwaInstallButton from './PwaInstallButton.jsx';
 import {
   createTeacherClass,
+  deleteClassCalendarOverride,
   importClassStudents,
+  listAttendanceHistory,
+  listClassCalendarOverrides,
   listClassStudents,
   listTeacherClasses,
   loadAttendance,
+  loadClassExportSnapshot,
   saveAttendance,
+  saveClassCalendarOverride,
 } from './lib/firestoreRepository.js';
+import { buildAttendanceCsv, buildJsonBackup, exportFilenameSlug } from './lib/exportFormats.js';
+import { buildRollStudentEntries, groupAttendanceHistory, summarizeSavedRoll } from './lib/attendanceHistory.js';
+import { mergePuducherryCalendar, PUDUCHERRY_CALENDAR_SOURCE } from './lib/puducherryCalendar.js';
 import { parseRosterCsv } from './lib/rosterImport.js';
 
 const ROLL_TYPES = ['MORNING', 'EVENING'];
@@ -29,6 +37,24 @@ function displayDate(dateISO) {
   return new Intl.DateTimeFormat('en-IN', {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Kolkata',
   }).format(new Date(`${dateISO}T12:00:00Z`));
+}
+
+function displayTime(timestampISO) {
+  if (!timestampISO) return 'Time not recorded';
+  return new Intl.DateTimeFormat('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })
+    .format(new Date(timestampISO));
+}
+
+function downloadFile(filename, contents, contentType) {
+  const blob = new Blob([contents], { type: contentType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function friendlyFirestoreError(error) {
@@ -68,6 +94,21 @@ function Notice({ children, tone = 'info' }) {
   return <div className={`live-notice ${tone}`} role={tone === 'error' ? 'alert' : 'status'}>{children}</div>;
 }
 
+function HistoryRollCard({ roll, students }) {
+  const [expanded, setExpanded] = useState(false);
+  const summary = summarizeSavedRoll(roll);
+  const studentEntries = expanded ? buildRollStudentEntries(roll, students) : [];
+  const statusLabels = { present: 'Present', absent: 'Absent', leave: 'On leave', unmarked: 'Unmarked' };
+  return (
+    <article className="live-history-roll">
+      <div className="live-history-roll-title"><strong>{roll.rollType === 'MORNING' ? 'Morning roll' : roll.rollType === 'EVENING' ? 'Evening roll' : roll.rollType}</strong><time>{displayTime(roll.updatedAt)}</time></div>
+      <div className="live-history-counts"><span className="present">{summary.present} present</span><span className="absent">{summary.absent} absent</span><span className="leave">{summary.leave} on leave</span><span>{summary.total} saved status{summary.total === 1 ? '' : 'es'}</span></div>
+      {summary.total > 0 && <button className="live-history-expand" type="button" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)}>{expanded ? 'Hide' : 'View'} individual statuses <span>({summary.total})</span></button>}
+      {expanded && <ul className="live-history-student-list">{studentEntries.map((entry, index) => <li key={`${roll.id}-${index}`}><span>{entry.label}</span><strong className={`live-history-student-status ${entry.status}`}>{statusLabels[entry.status]}</strong></li>)}</ul>}
+    </article>
+  );
+}
+
 export default function FirestoreWorkspace({ user, onSignOut }) {
   const [loadState, setLoadState] = useState('loading');
   const [classes, setClasses] = useState([]);
@@ -93,6 +134,22 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
   const [rosterRows, setRosterRows] = useState(null);
   const [rosterBusy, setRosterBusy] = useState(false);
   const [studentSearch, setStudentSearch] = useState('');
+  const [backupConsent, setBackupConsent] = useState(false);
+  const [backupBusy, setBackupBusy] = useState(false);
+  const [backupSnapshot, setBackupSnapshot] = useState(null);
+  const [backupExportedAt, setBackupExportedAt] = useState(null);
+  const [historyBusy, setHistoryBusy] = useState(false);
+  const [historyRecords, setHistoryRecords] = useState(null);
+  const [historyClassId, setHistoryClassId] = useState('');
+  const [historyLoadedAt, setHistoryLoadedAt] = useState(null);
+  const [calendarBusy, setCalendarBusy] = useState(false);
+  const [calendarOverrides, setCalendarOverrides] = useState(null);
+  const [calendarClassId, setCalendarClassId] = useState('');
+  const [calendarYear, setCalendarYear] = useState(2026);
+  const [calendarDrafts, setCalendarDrafts] = useState({});
+  const [calendarNewDate, setCalendarNewDate] = useState('2026-01-01');
+  const [calendarNewKind, setCalendarNewKind] = useState('HOLIDAY');
+  const [calendarNewLabel, setCalendarNewLabel] = useState('');
 
   const selectedClass = classes.find((item) => item.id === classId) ?? classes[0] ?? null;
   const rosterReady = Boolean(selectedClass && studentsClassId === selectedClass.id && studentsLoadState === 'ready');
@@ -119,6 +176,18 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
     return !query || String(student.rollNo).toLocaleLowerCase('en-IN').includes(query)
       || String(student.displayName).toLocaleLowerCase('en-IN').includes(query);
   });
+  const historyGroups = useMemo(
+    () => historyClassId === selectedClass?.id ? groupAttendanceHistory(historyRecords ?? []) : [],
+    [historyRecords, historyClassId, selectedClass?.id],
+  );
+  const calendarItems = useMemo(
+    () => mergePuducherryCalendar(calendarYear, calendarClassId === selectedClass?.id ? calendarOverrides ?? [] : []),
+    [calendarYear, calendarOverrides, calendarClassId, selectedClass?.id],
+  );
+  const calendarHasPendingChanges = useMemo(() => Object.entries(calendarDrafts).some(([dateISO, draft]) => {
+    const original = calendarItems.find((event) => event.dateISO === dateISO);
+    return original && (draft.kind !== original.kind || draft.label !== original.label);
+  }) || Boolean(calendarNewLabel.trim()), [calendarDrafts, calendarItems, calendarNewLabel]);
 
   useEffect(() => {
     let cancelled = false;
@@ -221,6 +290,23 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
     };
   }, []);
 
+  useEffect(() => {
+    setBackupSnapshot(null);
+    setBackupExportedAt(null);
+    setBackupConsent(false);
+    setHistoryRecords(null);
+    setHistoryClassId('');
+    setHistoryLoadedAt(null);
+    setCalendarOverrides(null);
+    setCalendarClassId('');
+    setCalendarDrafts({});
+  }, [selectedClass?.id]);
+
+  useEffect(() => {
+    setCalendarNewDate(`${calendarYear}-01-01`);
+    setCalendarDrafts({});
+  }, [calendarYear]);
+
   async function handleCreateClass(event) {
     event.preventDefault();
     if (!isOnline) return;
@@ -252,7 +338,7 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
   }
 
   async function handleImportRoster() {
-    if (!isOnline || !selectedClass || !rosterReady || !rosterRows || !rosterConsent || rollBusy || rosterBusy) return;
+    if (!isOnline || !selectedClass || !rosterReady || !rosterRows || !rosterConsent || rollBusy || rosterBusy || backupBusy || historyBusy || calendarBusy) return;
     if (!confirmDiscardRoll('import a roster')) return;
     const targetClassId = selectedClass.id;
     const importedCount = rosterRows.length;
@@ -260,6 +346,11 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
     setError('');
     try {
       await importClassStudents(targetClassId, rosterRows);
+      setBackupSnapshot(null);
+      setBackupExportedAt(null);
+      setHistoryRecords(null);
+      setHistoryClassId('');
+      setHistoryLoadedAt(null);
       // The batch has committed. Clear the preview before refreshing so a retry
       // cannot accidentally submit the same list a second time.
       setRosterRows(null);
@@ -287,21 +378,21 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
   }
 
   function changeStatus(studentId, status) {
-    if (!isOnline) return;
+    if (!isOnline || backupBusy || historyBusy || calendarBusy) return;
     setStatuses((current) => ({ ...current, [studentId]: status }));
     setRollDirty(true);
     setError('');
   }
 
   function markAllPresent() {
-    if (!isOnline) return;
+    if (!isOnline || backupBusy || historyBusy || calendarBusy) return;
     setStatuses(Object.fromEntries(activeStudents.map((student) => [student.id, 'present'])));
     setRollDirty(true);
     setError('');
   }
 
   async function handleSaveRoll() {
-    if (!isOnline || !selectedClass || !rosterReady || !isComplete || rollBusy) return;
+    if (!isOnline || !selectedClass || !rosterReady || !isComplete || rollBusy || backupBusy || historyBusy || calendarBusy) return;
     setRollBusy(true);
     setError('');
     try {
@@ -315,6 +406,11 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
       });
       setRollDirty(false);
       setRollSavedAt(new Date());
+      setBackupSnapshot(null);
+      setBackupExportedAt(null);
+      setHistoryRecords(null);
+      setHistoryClassId('');
+      setHistoryLoadedAt(null);
       setNotice(`${rollType === 'MORNING' ? 'Morning' : 'Evening'} roll saved to Firestore.`);
     } catch (reason) {
       setError(friendlyFirestoreError(reason));
@@ -323,14 +419,183 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
     }
   }
 
+  async function handleOpenHistory() {
+    if (!isOnline || !selectedClass || !rosterReady || historyBusy || calendarBusy || backupBusy || rollBusy || rosterBusy || classBusy) return;
+    if (!confirmDiscardCalendar('open attendance history')) return;
+    clearCalendarDrafts();
+    const targetClassId = selectedClass.id;
+    setView('history');
+    setHistoryBusy(true);
+    setHistoryRecords(null);
+    setHistoryClassId(targetClassId);
+    setHistoryLoadedAt(null);
+    setError('');
+    try {
+      const records = await listAttendanceHistory(targetClassId);
+      setHistoryRecords(records);
+      setHistoryLoadedAt(new Date());
+      setNotice(`Loaded ${records.length} saved attendance roll${records.length === 1 ? '' : 's'} from Firestore.`);
+    } catch (reason) {
+      setError(friendlyFirestoreError(reason));
+    } finally {
+      setHistoryBusy(false);
+    }
+  }
+
+  async function handleOpenCalendar() {
+    if (!isOnline || !selectedClass || !rosterReady || calendarBusy || historyBusy || backupBusy || rollBusy || rosterBusy || classBusy) return;
+    if (!confirmDiscardCalendar('refresh the calendar')) return;
+    clearCalendarDrafts();
+    const targetClassId = selectedClass.id;
+    setView('calendar');
+    setCalendarBusy(true);
+    setCalendarOverrides(null);
+    setCalendarClassId(targetClassId);
+    setCalendarDrafts({});
+    setError('');
+    try {
+      const records = await listClassCalendarOverrides(targetClassId);
+      setCalendarOverrides(records);
+      setNotice(`Loaded ${records.length} teacher calendar change${records.length === 1 ? '' : 's'}.`);
+    } catch (reason) {
+      setError(friendlyFirestoreError(reason));
+    } finally {
+      setCalendarBusy(false);
+    }
+  }
+
+  function calendarDraftFor(event) {
+    return calendarDrafts[event.dateISO] ?? { kind: event.kind, label: event.label };
+  }
+
+  function updateCalendarDraft(dateISO, field, value, event) {
+    setCalendarDrafts((current) => ({
+      ...current,
+      [dateISO]: { ...(current[dateISO] ?? { kind: event.kind, label: event.label }), [field]: value },
+    }));
+  }
+
+  async function saveCalendarDate(dateISO, kind, label) {
+    if (!isOnline || !selectedClass || !calendarClassId || calendarBusy || calendarClassId !== selectedClass.id) return false;
+    setCalendarBusy(true);
+    setError('');
+    try {
+      const saved = await saveClassCalendarOverride({
+        classId: selectedClass.id,
+        dateISO,
+        kind,
+        label,
+        teacherId: user.uid,
+      });
+      setCalendarOverrides((current) => [...(current ?? []).filter((event) => event.dateISO !== dateISO), saved]);
+      setBackupSnapshot(null);
+      setBackupExportedAt(null);
+      setCalendarDrafts((current) => {
+        const next = { ...current };
+        delete next[dateISO];
+        return next;
+      });
+      setNotice(`${displayDate(dateISO)} saved as ${kind === 'HOLIDAY' ? 'a holiday' : 'a working day'}.`);
+      return true;
+    } catch (reason) {
+      setError(friendlyFirestoreError(reason));
+      return false;
+    } finally {
+      setCalendarBusy(false);
+    }
+  }
+
+  async function resetCalendarDate(dateISO) {
+    if (!isOnline || !selectedClass || calendarBusy || !calendarOverrides?.some((event) => event.dateISO === dateISO)) return;
+    if (!window.confirm('Remove this teacher calendar change? The Puducherry default will be restored, or this added date will disappear.')) return;
+    setCalendarBusy(true);
+    setError('');
+    try {
+      await deleteClassCalendarOverride(selectedClass.id, dateISO);
+      setCalendarOverrides((current) => (current ?? []).filter((event) => event.dateISO !== dateISO));
+      setBackupSnapshot(null);
+      setBackupExportedAt(null);
+      setCalendarDrafts((current) => {
+        const next = { ...current };
+        delete next[dateISO];
+        return next;
+      });
+      setNotice('Teacher calendar change removed.');
+    } catch (reason) {
+      setError(friendlyFirestoreError(reason));
+    } finally {
+      setCalendarBusy(false);
+    }
+  }
+
+  async function addCalendarDate() {
+    if (!calendarNewDate || calendarItems.some((event) => event.dateISO === calendarNewDate)) return;
+    const label = calendarNewLabel.trim();
+    if (!label) {
+      setError('Enter a short label for the college calendar date.');
+      return;
+    }
+    if (await saveCalendarDate(calendarNewDate, calendarNewKind, label)) setCalendarNewLabel('');
+  }
+
+  async function prepareBackupSnapshot() {
+    if (!isOnline || !selectedClass || !rosterReady || !backupConsent || backupBusy || rollBusy || rosterBusy || classBusy || historyBusy || calendarBusy) return;
+    if (rollDirty && !window.confirm('There are unsaved attendance changes. This export includes saved Firestore records only, not the changes on this screen. Continue?')) return;
+    setBackupBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      const snapshot = await loadClassExportSnapshot(selectedClass.id);
+      setBackupSnapshot(snapshot);
+      setBackupExportedAt(new Date());
+      setNotice('Export snapshot prepared from saved Firestore records. Download the CSV, JSON backup, or both.');
+    } catch (reason) {
+      setError(friendlyFirestoreError(reason));
+    } finally {
+      setBackupBusy(false);
+    }
+  }
+
+  function downloadAttendanceCsv() {
+    if (!backupSnapshot || backupSnapshot.class.id !== selectedClass?.id || !backupExportedAt) return;
+    const csv = buildAttendanceCsv(backupSnapshot);
+    const fileName = `namma-class-${exportFilenameSlug(backupSnapshot.class.name)}-attendance-${todayInChennai()}.csv`;
+    downloadFile(fileName, csv, 'text/csv;charset=utf-8');
+    setNotice('Attendance CSV downloaded. Store it only in an approved, access-controlled location.');
+  }
+
+  function downloadJsonBackupFile() {
+    if (!backupSnapshot || backupSnapshot.class.id !== selectedClass?.id || !backupExportedAt) return;
+    const json = buildJsonBackup(backupSnapshot, backupExportedAt);
+    const fileName = `namma-class-${exportFilenameSlug(backupSnapshot.class.name)}-backup-${todayInChennai()}.json`;
+    downloadFile(fileName, json, 'application/json;charset=utf-8');
+    setNotice('JSON backup downloaded. Store it only in an approved, access-controlled location.');
+  }
+
   function confirmDiscardRoll(action) {
     if (!rollDirty) return true;
     return window.confirm(`You have unsaved attendance changes. Continuing to ${action} will discard them. Continue?`);
   }
 
+  function confirmDiscardCalendar(action) {
+    if (!calendarHasPendingChanges) return true;
+    return window.confirm(`You have unsaved calendar edits. Continuing to ${action} will discard them. Continue?`);
+  }
+
+  function clearCalendarDrafts() {
+    setCalendarDrafts({});
+    setCalendarNewLabel('');
+  }
+
+  function changeCalendarYear(amount) {
+    if (!confirmDiscardCalendar('change calendar years')) return;
+    clearCalendarDrafts();
+    setCalendarYear((year) => year + amount);
+  }
+
   function handleSafeSignOut() {
-    if (rollBusy || rosterBusy || classBusy) return;
-    if (confirmDiscardRoll('sign out')) onSignOut();
+    if (rollBusy || rosterBusy || classBusy || backupBusy || historyBusy || calendarBusy) return;
+    if (confirmDiscardRoll('sign out') && confirmDiscardCalendar('sign out')) onSignOut();
   }
 
   if (loadState === 'loading') {
@@ -374,7 +639,7 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
   }
 
   return (
-    <LiveShell user={user} onSignOut={handleSafeSignOut} signOutDisabled={rollBusy || rosterBusy || classBusy}>
+    <LiveShell user={user} onSignOut={handleSafeSignOut} signOutDisabled={rollBusy || rosterBusy || classBusy || backupBusy || historyBusy || calendarBusy}>
       <div className="live-content">
         <div className="live-heading-row">
           <div>
@@ -383,8 +648,11 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
             <p>{selectedClass.yearLabel || 'Class workspace'} · {rosterReady ? activeStudents.length : '…'} active student{rosterReady && activeStudents.length === 1 ? '' : 's'}</p>
           </div>
           <div className="live-heading-actions">
-            {classes.length > 1 && <label className="live-class-select"><span>Class</span><select value={selectedClass.id} disabled={rollBusy} onChange={(event) => { const nextId = event.target.value; if (nextId === selectedClass.id || confirmDiscardRoll('switch classes')) setClassId(nextId); }}>{classes.map((item) => <option key={item.id} value={item.id}>{item.name}{item.section ? ` · ${item.section}` : ''}</option>)}</select></label>}
-            <button className="live-quiet-button" type="button" onClick={() => { setView('roster'); setError(''); }}>Manage roster</button>
+            {classes.length > 1 && <label className="live-class-select"><span>Class</span><select value={selectedClass.id} disabled={rollBusy || backupBusy || historyBusy || calendarBusy || rosterBusy || classBusy} onChange={(event) => { const nextId = event.target.value; if (nextId === selectedClass.id || !confirmDiscardRoll('switch classes') || !confirmDiscardCalendar('switch classes')) return; clearCalendarDrafts(); setBackupConsent(false); setBackupSnapshot(null); setBackupExportedAt(null); setHistoryRecords(null); setHistoryClassId(''); setHistoryLoadedAt(null); setCalendarOverrides(null); setCalendarClassId(''); setCalendarDrafts({}); setClassId(nextId); }}>{classes.map((item) => <option key={item.id} value={item.id}>{item.name}{item.section ? ` · ${item.section}` : ''}</option>)}</select></label>}
+            <button className={`live-quiet-button${view === 'calendar' ? ' current' : ''}`} type="button" onClick={handleOpenCalendar} disabled={!isOnline || !rosterReady || calendarBusy || historyBusy || rollBusy || backupBusy || rosterBusy || classBusy}>Calendar</button>
+            <button className={`live-quiet-button${view === 'history' ? ' current' : ''}`} type="button" onClick={handleOpenHistory} disabled={!isOnline || !rosterReady || historyBusy || calendarBusy || rollBusy || backupBusy || rosterBusy || classBusy}>{historyBusy ? 'Loading history…' : 'History'}</button>
+            <button className={`live-quiet-button${view === 'backup' ? ' current' : ''}`} type="button" onClick={() => { if (!confirmDiscardCalendar('open backup/export')) return; clearCalendarDrafts(); setView('backup'); setError(''); }} disabled={calendarBusy}>Backup &amp; export</button>
+            <button className={`live-quiet-button${view === 'roster' ? ' current' : ''}`} type="button" onClick={() => { if (!confirmDiscardCalendar('open the roster')) return; clearCalendarDrafts(); setView('roster'); setError(''); }} disabled={calendarBusy}>Manage roster</button>
           </div>
         </div>
 
@@ -394,8 +662,8 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
         {!isOnline && <Notice tone="error">You’re offline. Attendance marking and Firestore writes are disabled until the connection returns; this app does not queue rolls offline.</Notice>}
 
         <div className="live-tabs" role="tablist" aria-label="Class workspace sections">
-          <button type="button" role="tab" aria-selected={view === 'attendance'} className={view === 'attendance' ? 'active' : ''} onClick={() => { setView('attendance'); setError(''); }}>Attendance</button>
-          <button type="button" role="tab" aria-selected={view === 'roster'} className={view === 'roster' ? 'active' : ''} onClick={() => { setView('roster'); setError(''); }}>Roster <span>{activeStudents.length}</span></button>
+          <button type="button" role="tab" aria-selected={view === 'attendance'} className={view === 'attendance' ? 'active' : ''} onClick={() => { if (!confirmDiscardCalendar('return to attendance')) return; clearCalendarDrafts(); setView('attendance'); setError(''); }} disabled={calendarBusy}>Attendance</button>
+          <button type="button" role="tab" aria-selected={view === 'roster'} className={view === 'roster' ? 'active' : ''} onClick={() => { if (!confirmDiscardCalendar('open the roster')) return; clearCalendarDrafts(); setView('roster'); setError(''); }} disabled={calendarBusy}>Roster <span>{activeStudents.length}</span></button>
         </div>
 
         {rosterPending ? (
@@ -434,11 +702,112 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
                 <label className="live-consent-check"><input type="checkbox" checked={rosterConsent} onChange={(event) => setRosterConsent(event.target.checked)} /><span>I’m authorized to store these class names in this teacher-owned Firebase project.</span></label>
                 <div className="live-actions">
                   <button className="live-secondary-button" type="button" onClick={previewRoster} disabled={!rosterText.trim() || rosterBusy}>Preview import</button>
-                  {rosterRows && <button className="live-primary-button" type="button" onClick={handleImportRoster} disabled={!rosterConsent || rosterBusy || !isOnline}>{rosterBusy ? 'Saving roster…' : `Save ${rosterRows.length} student${rosterRows.length === 1 ? '' : 's'}`}</button>}
+                  {rosterRows && <button className="live-primary-button" type="button" onClick={handleImportRoster} disabled={!rosterConsent || rosterBusy || backupBusy || historyBusy || calendarBusy || !isOnline}>{rosterBusy ? 'Saving roster…' : `Save ${rosterRows.length} student${rosterRows.length === 1 ? '' : 's'}`}</button>}
                 </div>
                 {rosterRows && <div className="live-import-preview"><strong>Preview: {rosterRows.length} new record{rosterRows.length === 1 ? '' : 's'}</strong><span>{rosterRows.slice(0, 4).map((row) => `${row.rollNo} · ${row.displayName}`).join('  |  ')}{rosterRows.length > 4 ? '  …' : ''}</span></div>}
               </div>
             )}
+          </section>
+        ) : view === 'calendar' ? (
+          <section className="live-panel live-calendar-panel">
+            <div className="live-panel-heading">
+              <div><span className="live-eyebrow">EDITABLE CLASS DATA · PUDUCHERRY DEFAULTS</span><h2>College calendar</h2><p>Teacher changes are stored under this class in Firestore.</p></div>
+              <div className="live-calendar-year-tools"><button className="live-secondary-button" type="button" onClick={() => changeCalendarYear(-1)} disabled={calendarBusy} aria-label="Previous year">‹</button><strong>{calendarYear}</strong><button className="live-secondary-button" type="button" onClick={() => changeCalendarYear(1)} disabled={calendarBusy} aria-label="Next year">›</button></div>
+            </div>
+            <div className="live-calendar-content">
+              <div className="live-calendar-note"><strong>Editable defaults, not a completed college schedule.</strong> The Puducherry public-holiday dates are starting data; verify them against the college calendar. Dates not listed are not automatically treated as working days. The 75% calculation stays off until term dates, working weekdays and the one-day morning/evening rule are confirmed. <a href={PUDUCHERRY_CALENDAR_SOURCE.primaryUrl} target="_blank" rel="noreferrer">Official 2026 holiday order</a>.</div>
+              {calendarYear !== 2026 && <div className="live-empty-inline">Only {PUDUCHERRY_CALENDAR_SOURCE.region} defaults for 2026 are bundled. For {calendarYear}, enter college dates manually until an official list is added.</div>}
+              {calendarBusy ? (
+                <div className="live-loading small"><span className="live-spinner" /> Loading or saving calendar data…</div>
+              ) : calendarOverrides === null || calendarClassId !== selectedClass.id ? (
+                <div className="live-empty-inline">Calendar data could not be loaded. Check the connection/rules, then retry.<br /><button className="live-secondary-button" type="button" onClick={handleOpenCalendar} disabled={!isOnline || calendarBusy}>Retry calendar</button></div>
+              ) : (
+                <>
+                  <div className="live-calendar-add">
+                    <div><h3>Add a college date</h3><p>Add a college holiday or a special working day; dates are editable class data.</p></div>
+                    <div className="live-calendar-add-fields">
+                      <label><span>Date</span><input type="date" min={`${calendarYear}-01-01`} max={`${calendarYear}-12-31`} value={calendarNewDate} onChange={(event) => setCalendarNewDate(event.target.value)} disabled={!isOnline || calendarBusy} /></label>
+                      <label><span>Type</span><select value={calendarNewKind} onChange={(event) => setCalendarNewKind(event.target.value)} disabled={!isOnline || calendarBusy}><option value="HOLIDAY">Holiday</option><option value="WORKING">Working day</option></select></label>
+                      <label className="live-calendar-add-label"><span>Label</span><input maxLength={120} value={calendarNewLabel} onChange={(event) => setCalendarNewLabel(event.target.value)} placeholder="e.g. College holiday" disabled={!isOnline || calendarBusy} /></label>
+                      <button className="live-primary-button" type="button" onClick={addCalendarDate} disabled={!isOnline || calendarBusy || !calendarNewDate || !calendarNewLabel.trim() || calendarItems.some((event) => event.dateISO === calendarNewDate)}>Add date</button>
+                    </div>
+                  </div>
+                  {calendarItems.length === 0 ? (
+                    <div className="live-empty-roster"><span className="live-empty-mark">—</span><h2>No calendar dates listed for {calendarYear}</h2><p>Add a holiday or a special working day above.</p></div>
+                  ) : (
+                    <div className="live-calendar-list">
+                      {calendarItems.map((event) => {
+                        const draft = calendarDraftFor(event);
+                        const changed = draft.kind !== event.kind || draft.label !== event.label;
+                        return (
+                          <article className="live-calendar-row" key={event.dateISO}>
+                            <div className="live-calendar-row-heading"><strong>{displayDate(event.dateISO)}</strong><span className={`live-calendar-kind ${draft.kind.toLowerCase()}`}>{draft.kind === 'HOLIDAY' ? 'Holiday' : 'Working day'}</span></div>
+                            <div className="live-calendar-source">{event.isOverride ? <span>Teacher {event.defaultKind ? 'override' : 'added date'}{event.sourceUrl ? ' · official default available' : ''}</span> : <span>Official Puducherry default</span>}{event.sourceUrl && <a href={event.sourceUrl} target="_blank" rel="noreferrer">Source</a>}</div>
+                            {event.isOverride && event.defaultKind && <div className="live-calendar-baseline">Official default: {event.defaultKind === 'HOLIDAY' ? 'Holiday' : 'Working day'} · {event.defaultLabel}</div>}
+                            <div className="live-calendar-edit-fields">
+                              <label><span>College status</span><select value={draft.kind} onChange={(change) => updateCalendarDraft(event.dateISO, 'kind', change.target.value, event)} disabled={!isOnline || calendarBusy}><option value="HOLIDAY">Holiday / non-working</option><option value="WORKING">Working day</option></select></label>
+                              <label className="live-calendar-edit-label"><span>Label</span><input maxLength={120} value={draft.label} onChange={(change) => updateCalendarDraft(event.dateISO, 'label', change.target.value, event)} disabled={!isOnline || calendarBusy} /></label>
+                              <div className="live-calendar-row-actions"><button className="live-primary-button" type="button" onClick={() => saveCalendarDate(event.dateISO, draft.kind, draft.label)} disabled={!isOnline || calendarBusy || !changed || !draft.label.trim()}>{calendarBusy ? 'Saving…' : 'Save'}</button>{event.isOverride && <button className="live-secondary-button" type="button" onClick={() => resetCalendarDate(event.dateISO)} disabled={!isOnline || calendarBusy}>Reset</button>}</div>
+                            </div>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <div className="live-calendar-foot">Source: {PUDUCHERRY_CALENDAR_SOURCE.title} ({PUDUCHERRY_CALENDAR_SOURCE.region}). Lunar dates can change. This list is not auto-synced; teacher edits are class-specific and can be reset to the bundled default.</div>
+                </>
+              )}
+            </div>
+          </section>
+        ) : view === 'history' ? (
+          <section className="live-panel live-history-panel">
+            <div className="live-panel-heading">
+              <div><span className="live-eyebrow">SAVED ROLLS · MORNING / EVENING</span><h2>Attendance history</h2><p>Each college day is grouped once, while its saved morning and evening rolls remain visible separately.</p></div>
+              <button className="live-secondary-button" type="button" onClick={handleOpenHistory} disabled={!isOnline || !rosterReady || historyBusy || calendarBusy || rollBusy || backupBusy || rosterBusy || classBusy}>{historyBusy ? 'Refreshing…' : 'Refresh history'}</button>
+            </div>
+            <div className="live-history-content">
+              <div className="live-history-note"><strong>History only for now.</strong> The 75% warning is withheld until the college term dates, normal working weekdays, and rule for differing morning/evening statuses on one day are confirmed.</div>
+              {historyBusy ? (
+                <div className="live-loading small"><span className="live-spinner" /> Loading saved attendance history…</div>
+              ) : historyRecords === null || historyClassId !== selectedClass.id ? (
+                <div className="live-empty-inline">History could not be loaded. Check the connection/rules, then retry.</div>
+              ) : historyRecords.length === 0 ? (
+                <div className="live-empty-roster"><span className="live-empty-mark">—</span><h2>No saved attendance rolls yet</h2><p>Once a morning or evening roll is saved, it will appear here by date.</p></div>
+              ) : (
+                <div className="live-history-days">
+                  {historyGroups.map((day) => (
+                    <section className="live-history-day" key={day.dateISO}>
+                      <div className="live-history-day-heading"><h3>{displayDate(day.dateISO)}</h3><span className="live-count-chip">{day.rolls.length} roll{day.rolls.length === 1 ? '' : 's'}</span></div>
+                      <div className="live-history-rolls">
+                        {day.rolls.map((roll) => <HistoryRollCard key={roll.id} roll={roll} students={activeStudents} />)}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              )}
+              {historyLoadedAt && <div className="live-backup-foot">Loaded from Firestore {historyLoadedAt.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}. Refresh to include newer rolls.</div>}
+            </div>
+          </section>
+        ) : view === 'backup' ? (
+          <section className="live-panel live-backup-panel">
+            <div className="live-panel-heading">
+              <div><span className="live-eyebrow">PRIVATE DOWNLOAD · NO CLOUD UPLOAD</span><h2>Export &amp; backup</h2><p>Prepare a snapshot of saved roster, attendance, and teacher calendar changes.</p></div>
+              <span className="live-count-chip">{backupSnapshot ? `${backupSnapshot.attendance.length} rolls · ${backupSnapshot.calendar.length} calendar edits` : `${students.length} students`}</span>
+            </div>
+            <div className="live-backup-content">
+              <div className="live-backup-warning"><strong>Student data leaves the app as a file.</strong><span>Downloads contain names, roll numbers, attendance, and teacher calendar overrides. They are not sent to another service. Store them only in a college-approved, access-controlled location.</span></div>
+              <label className="live-consent-check live-backup-consent"><input type="checkbox" checked={backupConsent} onChange={(event) => setBackupConsent(event.target.checked)} /><span>I’m authorized to create and store a local copy of these saved class records.</span></label>
+              <div className="live-actions">
+                <button className="live-primary-button" type="button" onClick={prepareBackupSnapshot} disabled={!isOnline || !rosterReady || !backupConsent || backupBusy || rollBusy || rosterBusy || classBusy || historyBusy || calendarBusy}>{backupBusy ? 'Preparing snapshot…' : backupSnapshot ? 'Refresh snapshot' : 'Prepare snapshot'}</button>
+                {backupSnapshot && backupSnapshot.class.id === selectedClass.id && <>
+                  <button className="live-secondary-button" type="button" onClick={downloadAttendanceCsv}>Download attendance CSV</button>
+                  <button className="live-secondary-button" type="button" onClick={downloadJsonBackupFile}>Download JSON backup</button>
+                </>}
+              </div>
+              {backupSnapshot && backupExportedAt && <div className="live-import-preview"><strong>Saved-data snapshot ready · {backupSnapshot.students.length} roster records · {backupSnapshot.attendance.length} attendance rolls · {backupSnapshot.calendar.length} calendar edits</strong><span>Prepared {backupExportedAt.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}. It includes only records already saved in Firestore.</span></div>}
+              <div className="live-backup-foot">The CSV is a spreadsheet-friendly attendance register. The JSON file is a portable backup of this class, roster, saved rolls, and teacher calendar overrides. Bundled Puducherry defaults are part of the app, not copied into the JSON. Automatic cloud backup and restore are not implemented yet.</div>
+              {!isOnline && <Notice tone="error">Reconnect to Firestore before preparing or downloading a fresh snapshot.</Notice>}
+            </div>
           </section>
         ) : activeStudents.length === 0 ? (
           <section className="live-panel live-empty-roster">
@@ -449,15 +818,15 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
           <>
             <div className="live-controls">
               <div className="live-roll-switch" role="tablist" aria-label="Attendance session">
-                {ROLL_TYPES.map((type) => <button key={type} type="button" role="tab" aria-selected={rollType === type} className={rollType === type ? 'active' : ''} disabled={rollBusy} onClick={() => { if (type === rollType || confirmDiscardRoll('switch attendance sessions')) setRollType(type); }}><span>{type === 'MORNING' ? '☼' : '☾'}</span><strong>{type === 'MORNING' ? 'Morning roll' : 'Evening roll'}</strong></button>)}
+                {ROLL_TYPES.map((type) => <button key={type} type="button" role="tab" aria-selected={rollType === type} className={rollType === type ? 'active' : ''} disabled={rollBusy || backupBusy || historyBusy || calendarBusy} onClick={() => { if (type === rollType || confirmDiscardRoll('switch attendance sessions')) setRollType(type); }}><span>{type === 'MORNING' ? '☼' : '☾'}</span><strong>{type === 'MORNING' ? 'Morning roll' : 'Evening roll'}</strong></button>)}
               </div>
-              <label className="live-date-control"><span>Date</span><input type="date" disabled={rollBusy} max={todayInChennai()} value={dateISO} onChange={(event) => { if (event.target.value && (event.target.value === dateISO || confirmDiscardRoll('change attendance dates'))) setDateISO(event.target.value); }} /></label>
+              <label className="live-date-control"><span>Date</span><input type="date" disabled={rollBusy || backupBusy || historyBusy || calendarBusy} max={todayInChennai()} value={dateISO} onChange={(event) => { if (event.target.value && (event.target.value === dateISO || confirmDiscardRoll('change attendance dates'))) setDateISO(event.target.value); }} /></label>
             </div>
 
             <section className="live-panel live-attendance-panel">
               <div className="live-panel-heading">
                 <div><span className="live-eyebrow">{rollType === 'MORNING' ? 'AM CHECKPOINT' : 'PM CHECKPOINT'} · {displayDate(dateISO)}</span><h2>Mark attendance</h2><p>Review each status. No message will be sent from this workspace.</p></div>
-                <button type="button" className="live-secondary-button" onClick={markAllPresent} disabled={!isOnline || !rosterReady || rollBusy || activeStudents.length === 0}>Mark all present</button>
+                <button type="button" className="live-secondary-button" onClick={markAllPresent} disabled={!isOnline || !rosterReady || rollBusy || backupBusy || historyBusy || calendarBusy || activeStudents.length === 0}>Mark all present</button>
               </div>
               <div className="live-progress"><span style={{ width: `${activeStudents.length ? (markedCount / activeStudents.length) * 100 : 0}%` }} /></div>
               <div className="live-progress-label"><span>{markedCount} of {activeStudents.length} marked</span><span>{activeStudents.length ? Math.round((markedCount / activeStudents.length) * 100) : 0}%</span></div>
@@ -467,7 +836,7 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
                     <div className="live-attendance-row" key={student.id}>
                       <div className="live-student-ident"><span className="live-roll-badge">{student.rollNo}</span><strong>{student.displayName}</strong></div>
                       <div className="live-status-buttons" role="group" aria-label={`Attendance for ${student.displayName}`}>
-                        {ATTENDANCE_STATUSES.map((item) => <button key={item.value} type="button" aria-pressed={statuses[student.id] === item.value} className={`live-status-button ${item.value} ${statuses[student.id] === item.value ? 'selected' : ''}`} disabled={!isOnline} onClick={() => changeStatus(student.id, item.value)}><span>{item.short}</span><em>{item.label}</em></button>)}
+                        {ATTENDANCE_STATUSES.map((item) => <button key={item.value} type="button" aria-pressed={statuses[student.id] === item.value} className={`live-status-button ${item.value} ${statuses[student.id] === item.value ? 'selected' : ''}`} disabled={!isOnline || backupBusy || historyBusy || calendarBusy} onClick={() => changeStatus(student.id, item.value)}><span>{item.short}</span><em>{item.label}</em></button>)}
                       </div>
                     </div>
                   ))}
@@ -475,7 +844,7 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
               )}
               <div className="live-save-footer">
                 <div className="live-save-caption">{rollSavedAt && !rollDirty ? `Saved to Firestore${rollSavedAt instanceof Date ? ` · ${rollSavedAt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : ''}` : rollDirty ? 'Unsaved changes on this screen' : isComplete ? 'Ready to save this roll' : `Mark ${counts.unmarked} more before saving`}</div>
-                <button className="live-primary-button" type="button" onClick={handleSaveRoll} disabled={!isOnline || !isComplete || !rollDirty || rollBusy}>{rollBusy ? 'Saving…' : 'Save roll'}</button>
+                <button className="live-primary-button" type="button" onClick={handleSaveRoll} disabled={!isOnline || !isComplete || !rollDirty || rollBusy || backupBusy || historyBusy || calendarBusy}>{rollBusy ? 'Saving…' : 'Save roll'}</button>
               </div>
             </section>
 

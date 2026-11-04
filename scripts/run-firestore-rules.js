@@ -74,6 +74,9 @@ try {
     await assertSucceeds(getDoc(doc(teacherDb, 'classes/class-a/students/demo-01')));
     const ownRoster = await assertSucceeds(getDocs(collection(teacherDb, 'classes/class-a/students')));
     assert.equal(ownRoster.size, 1);
+    const ownRolls = await assertSucceeds(getDocs(collection(teacherDb, 'classes/class-a/attendance')));
+    assert.equal(ownRolls.size, 1);
+    await assertFails(getDocs(collection(teacherDb, 'classes/class-b/attendance')));
     await assertSucceeds(getDoc(doc(teacherDb, 'classes/class-a/attendance/2026-11-04_MORNING')));
     await assertFails(getDoc(doc(teacherDb, 'classes/class-b')));
     await assertFails(getDoc(doc(teacherDb, 'classes/class-b/students/demo-02')));
@@ -137,6 +140,32 @@ try {
     await assertFails(updateDoc(ref, { dateISO: '2026-11-05', updatedAt: serverTimestamp() }));
     await assertFails(updateDoc(ref, { rollType: 'EVENING', updatedAt: serverTimestamp() }));
     await assertFails(deleteDoc(ref));
+  });
+
+  await scenario('approved teachers can edit only their own class calendar overrides', async () => {
+    const ref = doc(teacherDb, 'classes/class-a/calendarOverrides/2026-12-24');
+    await assertSucceeds(setDoc(ref, {
+      classId: 'class-a', dateISO: '2026-12-24', kind: 'HOLIDAY', label: 'College holiday',
+      teacherId: 'teacher-1', updatedAt: serverTimestamp(),
+    }));
+    const ownCalendar = await assertSucceeds(getDocs(collection(teacherDb, 'classes/class-a/calendarOverrides')));
+    assert.equal(ownCalendar.size, 1);
+    await assertSucceeds(updateDoc(ref, { kind: 'WORKING', label: 'College working day', updatedAt: serverTimestamp() }));
+    await assertFails(setDoc(doc(teacherDb, 'classes/class-a/calendarOverrides/2026-12-25'), {
+      classId: 'class-a', dateISO: '2026-12-24', kind: 'HOLIDAY', label: 'Wrong path date',
+      teacherId: 'teacher-1', updatedAt: serverTimestamp(),
+    }));
+    await assertFails(setDoc(doc(teacherDb, 'classes/class-a/calendarOverrides/2026-12-26'), {
+      classId: 'class-a', dateISO: '2026-12-26', kind: 'HOLIDAY', label: 'Extra field',
+      teacherId: 'teacher-1', updatedAt: serverTimestamp(), parentPhone: 'not-allowed',
+    }));
+    await assertFails(setDoc(doc(otherTeacherDb, 'classes/class-a/calendarOverrides/2026-12-27'), {
+      classId: 'class-a', dateISO: '2026-12-27', kind: 'HOLIDAY', label: 'Other teacher',
+      teacherId: 'teacher-2', updatedAt: serverTimestamp(),
+    }));
+    await assertSucceeds(deleteDoc(ref));
+    await assertFails(deleteDoc(doc(otherTeacherDb, 'classes/class-a/calendarOverrides/2026-12-24')));
+    await assertFails(getDocs(collection(teacherDb, 'classes/class-b/calendarOverrides')));
   });
 
   await scenario('parent contact and consent paths remain inaccessible to clients', async () => {

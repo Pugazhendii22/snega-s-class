@@ -59,6 +59,21 @@ service cloud.firestore {
         && data.updatedAt == request.time;
     }
 
+    function validCalendarOverride(data, classId, dateISO) {
+      return data.keys().hasAll(['classId', 'dateISO', 'kind', 'label', 'teacherId', 'updatedAt'])
+        && data.keys().hasOnly(['classId', 'dateISO', 'kind', 'label', 'teacherId', 'updatedAt'])
+        && data.classId == classId
+        && data.dateISO is string
+        && data.dateISO.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && data.dateISO == dateISO
+        && data.kind in ['HOLIDAY', 'WORKING']
+        && data.label is string
+        && data.label.size() > 0
+        && data.label.size() <= 120
+        && data.teacherId == request.auth.uid
+        && data.updatedAt == request.time;
+    }
+
     match /teachers/{teacherId} {
       // Lets a signed-in teacher check only their own approval record.
       allow read: if signedIn() && request.auth.uid == teacherId;
@@ -95,6 +110,14 @@ service cloud.firestore {
           && validAttendance(request.resource.data)
           && attendanceId == request.resource.data.dateISO + '_' + request.resource.data.rollType;
         allow delete: if false;
+      }
+
+      match /calendarOverrides/{dateISO} {
+        allow read: if ownsClass(classId);
+        allow create, update: if ownsClass(classId)
+          && validCalendarOverride(request.resource.data, classId, dateISO);
+        // Deleting an override restores the bundled Puducherry default for that date.
+        allow delete: if ownsClass(classId);
       }
 
       match /{document=**} {

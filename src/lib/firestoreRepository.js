@@ -1,6 +1,7 @@
 import {
   addDoc,
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -106,6 +107,141 @@ export async function loadAttendance(classId, dateISO, rollType) {
   const snapshot = await getDoc(attendanceRef(db, id, dateISO, rollType));
   if (!snapshot.exists()) return null;
   return { id: snapshot.id, ...snapshot.data() };
+}
+
+function timestampToIso(value) {
+  if (typeof value?.toDate === 'function') return value.toDate().toISOString();
+  if (value instanceof Date) return value.toISOString();
+  return null;
+}
+
+export async function listAttendanceHistory(classId) {
+  const db = firestore();
+  const id = requireText(classId, 'Class ID', 1500);
+  const result = await getDocs(collection(db, 'classes', id, 'attendance'));
+  const rollOrder = { MORNING: 0, EVENING: 1 };
+  return result.docs.map((snapshot) => {
+    const data = snapshot.data();
+    return {
+      id: snapshot.id,
+      dateISO: String(data.dateISO ?? ''),
+      rollType: String(data.rollType ?? ''),
+      statuses: data.statuses && typeof data.statuses === 'object' ? { ...data.statuses } : {},
+      updatedAt: timestampToIso(data.updatedAt),
+    };
+  }).sort((a, b) => b.dateISO.localeCompare(a.dateISO)
+    || (rollOrder[a.rollType] ?? 9) - (rollOrder[b.rollType] ?? 9));
+}
+
+function validateCalendarDate(dateISO) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateISO)) throw new Error('Choose a real calendar date in YYYY-MM-DD format.');
+  const parsed = new Date(`${dateISO}T00:00:00.000Z`);
+  if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== dateISO) {
+    throw new Error('Choose a real calendar date in YYYY-MM-DD format.');
+  }
+}
+
+export async function listClassCalendarOverrides(classId) {
+  const db = firestore();
+  const id = requireText(classId, 'Class ID', 1500);
+  const result = await getDocs(collection(db, 'classes', id, 'calendarOverrides'));
+  return result.docs.map((snapshot) => {
+    const data = snapshot.data();
+    return {
+      id: snapshot.id,
+      dateISO: String(data.dateISO ?? ''),
+      kind: String(data.kind ?? ''),
+      label: String(data.label ?? ''),
+      updatedAt: timestampToIso(data.updatedAt),
+    };
+  }).sort((a, b) => a.dateISO.localeCompare(b.dateISO));
+}
+
+export async function saveClassCalendarOverride({ classId, dateISO, kind, label, teacherId }) {
+  const db = firestore();
+  const id = requireText(classId, 'Class ID', 1500);
+  const date = requireText(dateISO, 'Calendar date', 10);
+  validateCalendarDate(date);
+  if (!['HOLIDAY', 'WORKING'].includes(kind)) throw new Error('Choose holiday or working day.');
+  const cleanLabel = requireText(label, 'Calendar label', 120);
+  const authorId = requireText(teacherId, 'Teacher ID', 128);
+  await setDoc(doc(db, 'classes', id, 'calendarOverrides', date), {
+    classId: id,
+    dateISO: date,
+    kind,
+    label: cleanLabel,
+    teacherId: authorId,
+    updatedAt: serverTimestamp(),
+  });
+  return { id: date, dateISO: date, kind, label: cleanLabel };
+}
+
+export async function deleteClassCalendarOverride(classId, dateISO) {
+  const db = firestore();
+  const id = requireText(classId, 'Class ID', 1500);
+  const date = requireText(dateISO, 'Calendar date', 10);
+  validateCalendarDate(date);
+  await deleteDoc(doc(db, 'classes', id, 'calendarOverrides', date));
+}
+
+export async function loadClassExportSnapshot(classId) {
+  const db = firestore();
+  const id = requireText(classId, 'Class ID', 1500);
+  const [classSnapshot, studentSnapshots, attendanceSnapshots, calendarSnapshots] = await Promise.all([
+    getDoc(doc(db, 'classes', id)),
+    getDocs(collection(db, 'classes', id, 'students')),
+    getDocs(collection(db, 'classes', id, 'attendance')),
+    getDocs(collection(db, 'classes', id, 'calendarOverrides')),
+  ]);
+  if (!classSnapshot.exists()) throw new Error('This class could not be found for export.');
+
+  const classData = classSnapshot.data();
+  const students = studentSnapshots.docs.map((snapshot) => {
+    const data = snapshot.data();
+    return {
+      id: snapshot.id,
+      rollNo: String(data.rollNo ?? ''),
+      displayName: String(data.displayName ?? ''),
+      active: data.active !== false,
+      createdAt: timestampToIso(data.createdAt),
+    };
+  }).sort((a, b) => a.rollNo.localeCompare(b.rollNo, 'en', { numeric: true, sensitivity: 'base' }));
+
+  const rollOrder = { MORNING: 0, EVENING: 1 };
+  const attendance = attendanceSnapshots.docs.map((snapshot) => {
+    const data = snapshot.data();
+    return {
+      id: snapshot.id,
+      dateISO: String(data.dateISO ?? ''),
+      rollType: String(data.rollType ?? ''),
+      statuses: data.statuses && typeof data.statuses === 'object' ? { ...data.statuses } : {},
+      updatedAt: timestampToIso(data.updatedAt),
+    };
+  }).sort((a, b) => a.dateISO.localeCompare(b.dateISO) || (rollOrder[a.rollType] ?? 9) - (rollOrder[b.rollType] ?? 9));
+  const calendar = calendarSnapshots.docs.map((snapshot) => {
+    const data = snapshot.data();
+    return {
+      id: snapshot.id,
+      dateISO: String(data.dateISO ?? ''),
+      kind: String(data.kind ?? ''),
+      label: String(data.label ?? ''),
+      updatedAt: timestampToIso(data.updatedAt),
+    };
+  }).sort((a, b) => a.dateISO.localeCompare(b.dateISO));
+
+  return {
+    class: {
+      id,
+      name: String(classData.name ?? ''),
+      section: String(classData.section ?? ''),
+      yearLabel: String(classData.yearLabel ?? ''),
+      active: classData.active !== false,
+      createdAt: timestampToIso(classData.createdAt),
+    },
+    students,
+    attendance,
+    calendar,
+  };
 }
 
 export async function saveAttendance({ classId, dateISO, rollType, statuses, teacherId, students }) {
