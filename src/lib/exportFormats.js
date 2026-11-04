@@ -43,7 +43,7 @@ export function buildJsonBackup(snapshot, exportedAt = new Date()) {
   const exportedAtIso = exportedAt instanceof Date ? exportedAt.toISOString() : new Date(exportedAt).toISOString();
   const backup = {
     format: 'namma-class-firestore-backup',
-    schemaVersion: 1,
+    schemaVersion: 2,
     exportedAt: exportedAtIso,
     timeZone: 'Asia/Kolkata',
     class: {
@@ -75,6 +75,18 @@ export function buildJsonBackup(snapshot, exportedAt = new Date()) {
       label: event.label,
       updatedAt: event.updatedAt ?? null,
     })),
+    attendanceThreshold: snapshot.attendanceThreshold ? {
+      termStartISO: snapshot.attendanceThreshold.termStartISO,
+      termEndISO: snapshot.attendanceThreshold.termEndISO,
+      trackingStartISO: snapshot.attendanceThreshold.trackingStartISO,
+      workingWeekdays: Array.isArray(snapshot.attendanceThreshold.workingWeekdays)
+        ? [...snapshot.attendanceThreshold.workingWeekdays]
+        : [],
+      sessionPolicy: snapshot.attendanceThreshold.sessionPolicy,
+      leavePolicy: snapshot.attendanceThreshold.leavePolicy,
+      calendarConfirmed: snapshot.attendanceThreshold.calendarConfirmed === true,
+      updatedAt: snapshot.attendanceThreshold.updatedAt ?? null,
+    } : null,
   };
   return JSON.stringify(backup, null, 2);
 }

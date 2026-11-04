@@ -903,3 +903,58 @@ body, .app-shell { background: #f4f9fd; }
   .live-message-heading h2 { font-size: 15px; }
   .live-message-footer { align-items: flex-start; flex-direction: column; }
 }
+.live-threshold-panel { display: grid; gap: 12px; margin-bottom: 20px; padding: 16px; border: 1px solid #e8ede8; border-radius: 12px; background: #fcfdfb; }
+.live-threshold-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.live-threshold-heading h3 { margin: 3px 0 4px; color: #334b3b; font: 800 15px Manrope, 'DM Sans', sans-serif; }
+.live-threshold-heading p { max-width: 660px; margin: 0; color: #829087; font-size: 9px; line-height: 1.5; }
+.live-threshold-lock { flex: 0 0 auto; padding: 6px 8px; border: 1px solid #e3ebe2; border-radius: 999px; color: #67806a; background: #f4f8f2; font-size: 8px; }
+.live-threshold-policy { display: grid; gap: 12px; padding: 12px; border: 1px solid #edf1ed; border-radius: 10px; background: #fff; }
+.live-threshold-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.live-threshold-fields label { display: grid; align-content: start; gap: 5px; color: #65756b; font-size: 8px; font-weight: 700; }
+.live-threshold-fields input, .live-threshold-fields select { width: 100%; min-width: 0; height: 34px; padding: 0 8px; border: 1px solid #e4eae5; border-radius: 7px; outline: none; color: #4f6256; background: #fff; font: 500 9px 'DM Sans', sans-serif; }
+.live-threshold-fields input:focus, .live-threshold-fields select:focus { border-color: #9dbca4; box-shadow: 0 0 0 3px #eaf3e9; }
+.live-threshold-fields small { color: #909b93; font-size: 8px; font-weight: 400; line-height: 1.45; }
+.live-threshold-weekdays { min-width: 0; margin: 0; padding: 0; border: 0; }
+.live-threshold-weekdays legend { margin-bottom: 7px; color: #65756b; font-size: 8px; font-weight: 700; }
+.live-threshold-weekdays > div { display: flex; flex-wrap: wrap; gap: 5px; }
+.live-threshold-weekdays label { display: flex; align-items: center; gap: 5px; min-height: 29px; padding: 0 8px; border: 1px solid #e8eee8; border-radius: 7px; color: #718078; background: #fbfcfb; font-size: 8px; cursor: pointer; }
+.live-threshold-weekdays input, .live-threshold-calendar-confirm input { accent-color: #56815e; }
+.live-threshold-weekdays label:has(input:checked) { border-color: #cfe0d0; color: #49694f; background: #f1f7ef; }
+.live-threshold-calendar-confirm { display: flex; align-items: flex-start; gap: 8px; padding: 9px; border: 1px solid #e7ebdd; border-radius: 8px; color: #747e6b; background: #fafbf5; font-size: 8px; line-height: 1.5; }
+.live-threshold-calendar-confirm input { margin-top: 2px; }
+.live-threshold-validation { display: grid; gap: 3px; margin: 0; padding: 8px 10px 8px 24px; border-radius: 7px; color: #85664f; background: #fbf6f1; font-size: 8px; }
+.live-threshold-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 9px; border-top: 1px solid #edf1ed; color: #8c978e; font-size: 8px; }
+.live-threshold-actions > div { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
+.live-threshold-actions button { min-height: 31px; padding: 0 11px; font-size: 9px; }
+.live-threshold-result { display: grid; gap: 8px; }
+.live-threshold-blocker { padding: 11px 12px; border: 1px solid #ebe8d9; border-radius: 9px; color: #7a7967; background: #fcfbf5; }
+.live-threshold-blocker strong { color: #6c714f; font-size: 9px; }
+.live-threshold-blocker p { margin: 4px 0 0; font-size: 8px; line-height: 1.5; }
+.live-threshold-blocker small { display: block; margin-top: 6px; color: #8e8469; font-size: 8px; }
+.live-threshold-blocker ul { display: grid; gap: 3px; margin: 8px 0 0; padding-left: 17px; font-size: 8px; }
+.live-threshold-result-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.live-threshold-result-heading > div { display: grid; gap: 3px; }
+.live-threshold-result-heading > div strong { color: #48614e; font-size: 10px; }
+.live-threshold-result-heading > div span { color: #8b968e; font-size: 8px; }
+.live-threshold-count { padding: 6px 8px; border: 1px solid #dfe9df; border-radius: 7px; color: #547258; background: #f2f8f0; font-size: 8px; font-weight: 700; }
+.live-threshold-count.risk { border-color: #f0dfd8; color: #a25a4a; background: #fcf2ee; }
+.live-threshold-table { overflow: auto; border: 1px solid #e8ede8; border-radius: 9px; background: #fff; }
+.live-threshold-table-head, .live-threshold-table-row { display: grid; grid-template-columns: 54px minmax(130px, 1.3fr) minmax(120px, 1fr) 92px 82px; align-items: center; gap: 8px; min-width: 560px; padding: 8px 10px; }
+.live-threshold-table-head { color: #94a097; background: #f8faf8; font-size: 7px; font-weight: 800; letter-spacing: .5px; }
+.live-threshold-table-row { min-height: 38px; border-top: 1px solid #f0f3f0; color: #6d7b71; font-size: 8px; }
+.live-threshold-table-row > strong { color: #53665a; font-size: 8px; overflow-wrap: anywhere; }
+.live-threshold-table-row > strong.risk { color: #aa5f50; }
+.live-threshold-risk-pill { padding: 4px 6px; border-radius: 999px; color: #a45848; background: #fcf0ed; font-size: 7px; font-style: normal; font-weight: 700; }
+.live-threshold-disclaimer, .live-threshold-foot { margin: 0; color: #909a92; font-size: 8px; line-height: 1.5; }
+.live-threshold-foot { padding-top: 8px; border-top: 1px solid #edf1ed; }
+@media (max-width: 700px) {
+  .live-threshold-heading { flex-direction: column; }
+  .live-threshold-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 480px) {
+  .live-threshold-panel { padding: 11px; }
+  .live-threshold-fields { grid-template-columns: 1fr; }
+  .live-threshold-actions { align-items: flex-start; flex-direction: column; }
+  .live-threshold-actions > div { width: 100%; justify-content: space-between; }
+  .live-threshold-result-heading { align-items: flex-start; flex-direction: column; }
+}

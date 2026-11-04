@@ -9,12 +9,21 @@ import {
   listClassStudents,
   listTeacherClasses,
   loadAttendance,
+  loadClassAttendanceThreshold,
   loadClassExportSnapshot,
   saveAttendance,
+  saveClassAttendanceThreshold,
   saveClassCalendarOverride,
 } from './lib/firestoreRepository.js';
 import { buildAttendanceCsv, buildJsonBackup, exportFilenameSlug } from './lib/exportFormats.js';
 import { buildRollStudentEntries, groupAttendanceHistory, summarizeSavedRoll } from './lib/attendanceHistory.js';
+import {
+  ATTENDANCE_LEAVE_POLICIES,
+  ATTENDANCE_SESSION_POLICIES,
+  ATTENDANCE_WEEKDAYS,
+  calculateAttendanceThreshold,
+  validateAttendanceThresholdSettings,
+} from './lib/attendanceThreshold.js';
 import { mergePuducherryCalendar, PUDUCHERRY_CALENDAR_SOURCE } from './lib/puducherryCalendar.js';
 import { renderParentMessage } from '../shared/messages.js';
 import { parseRosterCsv } from './lib/rosterImport.js';
@@ -32,6 +41,35 @@ function todayInChennai() {
   }).formatToParts(new Date());
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
   return `${values.year}-${values.month}-${values.day}`;
+}
+
+function emptyAttendanceThresholdForm() {
+  return {
+    termStartISO: '',
+    termEndISO: '',
+    trackingStartISO: '',
+    workingWeekdays: [],
+    sessionPolicy: '',
+    leavePolicy: '',
+    calendarConfirmed: false,
+  };
+}
+
+function attendanceThresholdFormFrom(settings) {
+  if (!settings) return emptyAttendanceThresholdForm();
+  return {
+    termStartISO: settings.termStartISO ?? '',
+    termEndISO: settings.termEndISO ?? '',
+    trackingStartISO: settings.trackingStartISO ?? '',
+    workingWeekdays: Array.isArray(settings.workingWeekdays) ? [...settings.workingWeekdays].sort((a, b) => a - b) : [],
+    sessionPolicy: settings.sessionPolicy ?? '',
+    leavePolicy: settings.leavePolicy ?? '',
+    calendarConfirmed: settings.calendarConfirmed === true,
+  };
+}
+
+function sameAttendanceThresholdForm(left, right) {
+  return JSON.stringify(attendanceThresholdFormFrom(left)) === JSON.stringify(attendanceThresholdFormFrom(right));
 }
 
 function displayDate(dateISO) {
@@ -166,6 +204,97 @@ function ParentMessageReview({ absentStudents, leaveCount, dateISO, rollType, on
   );
 }
 
+function AttendanceThresholdPanel({
+  ready,
+  loadError,
+  savedSettings,
+  form,
+  formDirty,
+  saveBusy,
+  canSave,
+  result,
+  todayISO,
+  onFieldChange,
+  onSave,
+  onDiscard,
+}) {
+  const validationErrors = validateAttendanceThresholdSettings(form);
+  const updateWeekday = (weekday, checked) => {
+    const current = new Set(form.workingWeekdays);
+    if (checked) current.add(weekday);
+    else current.delete(weekday);
+    onFieldChange('workingWeekdays', [...current].sort((a, b) => a - b));
+  };
+
+  return (
+    <section className="live-threshold-panel" aria-labelledby="live-threshold-title">
+      <div className="live-threshold-heading">
+        <div><span className="live-eyebrow">TEACHER-CONFIGURED · NO AUTOMATIC ALERTS</span><h3 id="live-threshold-title">75% attendance review</h3><p>One college date counts once. Figures are withheld if required saved rolls or student statuses are missing.</p></div>
+        <span className="live-threshold-lock">Preview only · no parent messages</span>
+      </div>
+      {!ready ? (
+        <div className="live-threshold-blocker" role="status">
+          <strong>Calculation settings unavailable</strong>
+          <p>{loadError || 'Load this class history and its calendar settings before configuring attendance review.'}</p>
+          {loadError && <small>Publish the updated teacher-scoped Firestore rules before saving percentage settings.</small>}
+        </div>
+      ) : (
+        <>
+          <div className="live-threshold-policy">
+            <div className="live-threshold-fields">
+              <label><span>College term starts</span><input type="date" value={form.termStartISO} max={form.termEndISO || undefined} onChange={(event) => onFieldChange('termStartISO', event.target.value)} disabled={saveBusy} /></label>
+              <label><span>College term ends</span><input type="date" value={form.termEndISO} min={form.termStartISO || undefined} onChange={(event) => onFieldChange('termEndISO', event.target.value)} disabled={saveBusy} /></label>
+              <label><span>Complete tracking starts</span><input type="date" value={form.trackingStartISO} min={form.termStartISO || undefined} max={form.termEndISO || undefined} onChange={(event) => onFieldChange('trackingStartISO', event.target.value)} disabled={saveBusy} /><small>First date from which all current students’ required rolls are available. Missing data is never counted as absence.</small></label>
+            </div>
+            <fieldset className="live-threshold-weekdays">
+              <legend>Ordinary working weekdays</legend>
+              <div>{ATTENDANCE_WEEKDAYS.map((day) => <label key={day.value}><input type="checkbox" checked={form.workingWeekdays.includes(day.value)} onChange={(event) => updateWeekday(day.value, event.target.checked)} disabled={saveBusy} /><span>{day.short}</span></label>)}</div>
+            </fieldset>
+            <div className="live-threshold-fields">
+              <label><span>How do two rolls count as one day?</span><select value={form.sessionPolicy} onChange={(event) => onFieldChange('sessionPolicy', event.target.value)} disabled={saveBusy}><option value="">Choose the college rule</option>{ATTENDANCE_SESSION_POLICIES.map((policy) => <option key={policy.value} value={policy.value}>{policy.label}</option>)}</select></label>
+              <label><span>How should “On leave” count?</span><select value={form.leavePolicy} onChange={(event) => onFieldChange('leavePolicy', event.target.value)} disabled={saveBusy}><option value="">Choose the college rule</option>{ATTENDANCE_LEAVE_POLICIES.map((policy) => <option key={policy.value} value={policy.value}>{policy.label}</option>)}</select></label>
+            </div>
+            <label className="live-threshold-calendar-confirm"><input type="checkbox" checked={form.calendarConfirmed} onChange={(event) => onFieldChange('calendarConfirmed', event.target.checked)} disabled={saveBusy} /><span>I checked the whole selected term against the college schedule, including holidays, breaks, and special working days. I verified or edited the Puducherry 2026 public-holiday defaults where applicable.</span></label>
+            {validationErrors.length > 0 && <ul className="live-threshold-validation">{validationErrors.map((message) => <li key={message}>{message}</li>)}</ul>}
+            <div className="live-threshold-actions">
+              <span>{savedSettings ? `Rules saved${savedSettings.updatedAt ? ` · ${displayTime(savedSettings.updatedAt)}` : ''}` : 'No percentage rules saved yet'}</span>
+              <div>{formDirty && <button className="live-secondary-button" type="button" onClick={onDiscard} disabled={saveBusy}>Discard edits</button>}<button className="live-primary-button" type="button" onClick={onSave} disabled={!canSave}>{saveBusy ? 'Saving rules…' : savedSettings ? 'Save rule changes' : 'Save rules'}</button></div>
+            </div>
+          </div>
+          <div className="live-threshold-result" aria-live="polite">
+            {result?.status === 'pending-changes' ? (
+              <div className="live-threshold-blocker"><strong>{savedSettings ? 'Save or discard policy edits to view percentages.' : 'Complete and save the calculation rules to start.'}</strong><p>{savedSettings ? 'The previous calculation is hidden while its rules are being changed.' : 'No attendance percentage is shown until all required settings are complete.'}</p></div>
+            ) : result?.status === 'not-configured' ? (
+              <div className="live-threshold-blocker"><strong>No percentage is calculated yet.</strong><p>Complete and save the term dates, working weekdays, session rule, leave treatment, and calendar confirmation above.</p></div>
+            ) : result?.status === 'incomplete' ? (
+              <div className="live-threshold-blocker">
+                <strong>Attendance coverage incomplete — no percentages shown</strong>
+                <p>{result.missingRollCount} required roll record{result.missingRollCount === 1 ? '' : 's'} and {result.missingStatusCount} student status{result.missingStatusCount === 1 ? '' : 'es'} are missing across {result.workingDayCount} scheduled working day{result.workingDayCount === 1 ? '' : 's'} ({result.fromISO} to {result.throughISO}). Missing entries are not treated as absences.</p>
+                {(result.missingRolls.length > 0 || result.missingStatuses.length > 0) && <ul>{result.missingRolls.slice(0, 5).map((item) => <li key={`${item.dateISO}-${item.rollType}`}>{item.dateISO} · {item.rollType === 'MORNING' ? 'morning' : 'evening'} roll not saved</li>)}{result.missingStatuses.slice(0, 5).map((item) => <li key={`${item.dateISO}-${item.rollType}-status`}>{item.dateISO} · {item.rollType === 'MORNING' ? 'morning' : 'evening'} roll is missing {item.count} student status{item.count === 1 ? '' : 'es'}</li>)}</ul>}
+              </div>
+            ) : result?.status === 'no-working-days' ? (
+              <div className="live-threshold-blocker"><strong>No scheduled working days in the calculation range</strong><p>Checked through {result.throughISO}. Review the tracking start date, term dates, weekdays, and calendar entries.</p></div>
+            ) : result?.status === 'no-students' ? (
+              <div className="live-threshold-blocker"><strong>No active roster to calculate</strong><p>Add or load the current class roster before reviewing percentages.</p></div>
+            ) : result?.status === 'ready' ? (
+              <>
+                <div className="live-threshold-result-heading"><div><strong>Review through {result.throughISO}</strong><span>{result.workingDayCount} scheduled date{result.workingDayCount === 1 ? '' : 's'} from {result.fromISO} · each date counted once</span></div><span className={result.belowThresholdCount ? 'live-threshold-count risk' : 'live-threshold-count'}>{result.belowThresholdCount} below 75%</span></div>
+                <div className="live-threshold-table"><div className="live-threshold-table-head"><span>ROLL</span><span>STUDENT</span><span>PRESENT / COUNTED</span><span>ATTENDANCE</span><span>REVIEW</span></div>{result.rows.map((row) => <div className="live-threshold-table-row" key={row.id}><span className="live-roll-badge">{row.rollNo}</span><strong>{row.displayName}</strong><span>{row.percentage === null ? 'No counted days' : `${row.presentDays} / ${row.countedDays}${row.excludedLeaveDays ? ` · ${row.excludedLeaveDays} leave day${row.excludedLeaveDays === 1 ? '' : 's'} excluded` : ''}`}</span><strong className={row.belowThreshold ? 'risk' : ''}>{row.percentage === null ? '—' : `${Number.isInteger(row.percentage) ? row.percentage.toFixed(0) : row.percentage.toFixed(2)}%`}</strong><span>{row.belowThreshold ? <em className="live-threshold-risk-pill">Below 75%</em> : row.percentage === null ? 'No data' : 'On track'}</span></div>)}</div>
+                <p className="live-threshold-disclaimer">Teacher review only. This calculation does not send notifications. Confirm the saved rules and source attendance before acting.</p>
+              </>
+            ) : result?.status === 'unavailable' ? (
+              <div className="live-threshold-blocker"><strong>Calculation is not available</strong><p>{result.message || 'Refresh history and calendar settings before calculating.'}</p></div>
+            ) : (
+              <div className="live-threshold-blocker"><strong>No percentage is displayed.</strong><p>Refresh the saved history and confirm the calculation rules.</p></div>
+            )}
+          </div>
+        </>
+      )}
+      <div className="live-threshold-foot">The calculation covers the configured tracking period through {todayISO}, capped at the term end. For “either” or “both” session rules, both AM and PM rolls must be saved on every scheduled working date. No warning is shown if coverage is incomplete.</div>
+    </section>
+  );
+}
+
 export default function FirestoreWorkspace({ user, onSignOut }) {
   const [loadState, setLoadState] = useState('loading');
   const [classes, setClasses] = useState([]);
@@ -200,6 +329,13 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
   const [historyRecords, setHistoryRecords] = useState(null);
   const [historyClassId, setHistoryClassId] = useState('');
   const [historyLoadedAt, setHistoryLoadedAt] = useState(null);
+  const [thresholdSettings, setThresholdSettings] = useState(null);
+  const [thresholdForm, setThresholdForm] = useState(emptyAttendanceThresholdForm);
+  const [thresholdLoadedClassId, setThresholdLoadedClassId] = useState('');
+  const [thresholdCalendarOverrides, setThresholdCalendarOverrides] = useState(null);
+  const [thresholdCalendarClassId, setThresholdCalendarClassId] = useState('');
+  const [thresholdLoadError, setThresholdLoadError] = useState('');
+  const [thresholdSaveBusy, setThresholdSaveBusy] = useState(false);
   const [calendarBusy, setCalendarBusy] = useState(false);
   const [calendarOverrides, setCalendarOverrides] = useState(null);
   const [calendarClassId, setCalendarClassId] = useState('');
@@ -247,6 +383,36 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
     () => historyClassId === selectedClass?.id ? groupAttendanceHistory(historyRecords ?? []) : [],
     [historyRecords, historyClassId, selectedClass?.id],
   );
+  const todayISO = todayInChennai();
+  const thresholdFormDirty = !sameAttendanceThresholdForm(thresholdForm, thresholdSettings ?? emptyAttendanceThresholdForm());
+  const thresholdValidationErrors = validateAttendanceThresholdSettings(thresholdForm);
+  const thresholdDataReady = Boolean(
+    historyClassId === selectedClass?.id
+      && thresholdLoadedClassId === selectedClass?.id
+      && thresholdCalendarClassId === selectedClass?.id
+      && !thresholdLoadError,
+  );
+  const thresholdCanSave = Boolean(
+    thresholdDataReady && isOnline && thresholdFormDirty && thresholdValidationErrors.length === 0
+      && !thresholdSaveBusy && !historyBusy && !calendarBusy && !backupBusy && !rollBusy,
+  );
+  const attendanceThresholdResult = useMemo(() => {
+    if (historyRecords === null || historyClassId !== selectedClass?.id) {
+      return { status: 'unavailable', message: 'Load saved attendance history to review percentages.' };
+    }
+    if (!thresholdDataReady) {
+      return { status: 'unavailable', message: thresholdLoadError || 'Load this class’s calendar and threshold settings first.' };
+    }
+    if (thresholdFormDirty) return { status: 'pending-changes' };
+    if (!thresholdSettings) return { status: 'not-configured' };
+    return calculateAttendanceThreshold({
+      settings: thresholdSettings,
+      attendanceRecords: historyRecords,
+      students: activeStudents,
+      calendarOverrides: thresholdCalendarOverrides ?? [],
+      todayISO,
+    });
+  }, [historyRecords, historyClassId, selectedClass?.id, thresholdDataReady, thresholdLoadError, thresholdFormDirty, thresholdSettings, activeStudents, thresholdCalendarOverrides, todayISO]);
   const calendarItems = useMemo(
     () => mergePuducherryCalendar(calendarYear, calendarClassId === selectedClass?.id ? calendarOverrides ?? [] : []),
     [calendarYear, calendarOverrides, calendarClassId, selectedClass?.id],
@@ -366,6 +532,12 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
     setHistoryRecords(null);
     setHistoryClassId('');
     setHistoryLoadedAt(null);
+    setThresholdSettings(null);
+    setThresholdForm(emptyAttendanceThresholdForm());
+    setThresholdLoadedClassId('');
+    setThresholdCalendarOverrides(null);
+    setThresholdCalendarClassId('');
+    setThresholdLoadError('');
     setCalendarOverrides(null);
     setCalendarClassId('');
     setCalendarDrafts({});
@@ -489,8 +661,8 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
   }
 
   async function handleOpenHistory() {
-    if (!isOnline || !selectedClass || !rosterReady || historyBusy || calendarBusy || backupBusy || rollBusy || rosterBusy || classBusy) return;
-    if (!confirmDiscardCalendar('open attendance history')) return;
+    if (!isOnline || !selectedClass || !rosterReady || historyBusy || calendarBusy || backupBusy || rollBusy || rosterBusy || classBusy || thresholdSaveBusy) return;
+    if (!confirmDiscardThreshold('refresh attendance history') || !confirmDiscardCalendar('open attendance history')) return;
     clearCalendarDrafts();
     const targetClassId = selectedClass.id;
     setView('history');
@@ -498,11 +670,38 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
     setHistoryRecords(null);
     setHistoryClassId(targetClassId);
     setHistoryLoadedAt(null);
+    setThresholdSettings(null);
+    setThresholdForm(emptyAttendanceThresholdForm());
+    setThresholdLoadedClassId('');
+    setThresholdCalendarOverrides(null);
+    setThresholdCalendarClassId('');
+    setThresholdLoadError('');
     setError('');
     try {
-      const records = await listAttendanceHistory(targetClassId);
+      const [historyResult, settingsResult, calendarResult] = await Promise.allSettled([
+        listAttendanceHistory(targetClassId),
+        loadClassAttendanceThreshold(targetClassId),
+        listClassCalendarOverrides(targetClassId),
+      ]);
+      if (historyResult.status === 'rejected') throw historyResult.reason;
+      const records = historyResult.value;
       setHistoryRecords(records);
       setHistoryLoadedAt(new Date());
+      const supportingErrors = [];
+      if (settingsResult.status === 'fulfilled') {
+        setThresholdSettings(settingsResult.value);
+        setThresholdForm(attendanceThresholdFormFrom(settingsResult.value));
+        setThresholdLoadedClassId(targetClassId);
+      } else {
+        supportingErrors.push(`Attendance settings: ${friendlyFirestoreError(settingsResult.reason)}`);
+      }
+      if (calendarResult.status === 'fulfilled') {
+        setThresholdCalendarOverrides(calendarResult.value);
+        setThresholdCalendarClassId(targetClassId);
+      } else {
+        supportingErrors.push(`Calendar data: ${friendlyFirestoreError(calendarResult.reason)}`);
+      }
+      setThresholdLoadError(supportingErrors.join(' '));
       setNotice(`Loaded ${records.length} saved attendance roll${records.length === 1 ? '' : 's'} from Firestore.`);
     } catch (reason) {
       setError(friendlyFirestoreError(reason));
@@ -511,8 +710,34 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
     }
   }
 
+  async function handleSaveAttendanceThreshold() {
+    if (!selectedClass || !thresholdCanSave) return;
+    setThresholdSaveBusy(true);
+    setError('');
+    try {
+      const saved = await saveClassAttendanceThreshold({
+        classId: selectedClass.id,
+        teacherId: user.uid,
+        settings: thresholdForm,
+      });
+      setThresholdSettings(saved);
+      setThresholdForm(attendanceThresholdFormFrom(saved));
+      setBackupSnapshot(null);
+      setBackupExportedAt(null);
+      setNotice('Attendance review rules saved. Percentages will appear only when every required roll and student status is present.');
+    } catch (reason) {
+      setError(friendlyFirestoreError(reason));
+    } finally {
+      setThresholdSaveBusy(false);
+    }
+  }
+
+  function discardAttendanceThresholdEdits() {
+    setThresholdForm(attendanceThresholdFormFrom(thresholdSettings));
+  }
+
   async function handleOpenCalendar() {
-    if (!isOnline || !selectedClass || !rosterReady || calendarBusy || historyBusy || backupBusy || rollBusy || rosterBusy || classBusy) return;
+    if (!isOnline || !selectedClass || !rosterReady || calendarBusy || historyBusy || backupBusy || rollBusy || rosterBusy || classBusy || thresholdSaveBusy) return;
     if (!confirmDiscardCalendar('refresh the calendar')) return;
     clearCalendarDrafts();
     const targetClassId = selectedClass.id;
@@ -608,7 +833,7 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
   }
 
   async function prepareBackupSnapshot() {
-    if (!isOnline || !selectedClass || !rosterReady || !backupConsent || backupBusy || rollBusy || rosterBusy || classBusy || historyBusy || calendarBusy) return;
+    if (!isOnline || !selectedClass || !rosterReady || !backupConsent || backupBusy || rollBusy || rosterBusy || classBusy || historyBusy || calendarBusy || thresholdSaveBusy) return;
     if (rollDirty && !window.confirm('There are unsaved attendance changes. This export includes saved Firestore records only, not the changes on this screen. Continue?')) return;
     setBackupBusy(true);
     setError('');
@@ -651,6 +876,11 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
     return window.confirm(`You have unsaved calendar edits. Continuing to ${action} will discard them. Continue?`);
   }
 
+  function confirmDiscardThreshold(action) {
+    if (!thresholdFormDirty) return true;
+    return window.confirm(`You have unsaved 75% calculation rule edits. Continuing to ${action} will discard them. Continue?`);
+  }
+
   function clearCalendarDrafts() {
     setCalendarDrafts({});
     setCalendarNewLabel('');
@@ -663,8 +893,8 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
   }
 
   function handleSafeSignOut() {
-    if (rollBusy || rosterBusy || classBusy || backupBusy || historyBusy || calendarBusy) return;
-    if (confirmDiscardRoll('sign out') && confirmDiscardCalendar('sign out')) onSignOut();
+    if (rollBusy || rosterBusy || classBusy || backupBusy || historyBusy || calendarBusy || thresholdSaveBusy) return;
+    if (confirmDiscardRoll('sign out') && confirmDiscardCalendar('sign out') && confirmDiscardThreshold('sign out')) onSignOut();
   }
 
   if (loadState === 'loading') {
@@ -708,7 +938,7 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
   }
 
   return (
-    <LiveShell user={user} onSignOut={handleSafeSignOut} signOutDisabled={rollBusy || rosterBusy || classBusy || backupBusy || historyBusy || calendarBusy}>
+    <LiveShell user={user} onSignOut={handleSafeSignOut} signOutDisabled={rollBusy || rosterBusy || classBusy || backupBusy || historyBusy || calendarBusy || thresholdSaveBusy}>
       <div className="live-content">
         <div className="live-heading-row">
           <div>
@@ -717,11 +947,11 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
             <p>{selectedClass.yearLabel || 'Class workspace'} · {rosterReady ? activeStudents.length : '…'} active student{rosterReady && activeStudents.length === 1 ? '' : 's'}</p>
           </div>
           <div className="live-heading-actions">
-            {classes.length > 1 && <label className="live-class-select"><span>Class</span><select value={selectedClass.id} disabled={rollBusy || backupBusy || historyBusy || calendarBusy || rosterBusy || classBusy} onChange={(event) => { const nextId = event.target.value; if (nextId === selectedClass.id || !confirmDiscardRoll('switch classes') || !confirmDiscardCalendar('switch classes')) return; clearCalendarDrafts(); setBackupConsent(false); setBackupSnapshot(null); setBackupExportedAt(null); setHistoryRecords(null); setHistoryClassId(''); setHistoryLoadedAt(null); setCalendarOverrides(null); setCalendarClassId(''); setCalendarDrafts({}); setClassId(nextId); }}>{classes.map((item) => <option key={item.id} value={item.id}>{item.name}{item.section ? ` · ${item.section}` : ''}</option>)}</select></label>}
-            <button className={`live-quiet-button${view === 'calendar' ? ' current' : ''}`} type="button" onClick={handleOpenCalendar} disabled={!isOnline || !rosterReady || calendarBusy || historyBusy || rollBusy || backupBusy || rosterBusy || classBusy}>Calendar</button>
-            <button className={`live-quiet-button${view === 'history' ? ' current' : ''}`} type="button" onClick={handleOpenHistory} disabled={!isOnline || !rosterReady || historyBusy || calendarBusy || rollBusy || backupBusy || rosterBusy || classBusy}>{historyBusy ? 'Loading history…' : 'History'}</button>
-            <button className={`live-quiet-button${view === 'backup' ? ' current' : ''}`} type="button" onClick={() => { if (!confirmDiscardCalendar('open backup/export')) return; clearCalendarDrafts(); setView('backup'); setError(''); }} disabled={calendarBusy}>Backup &amp; export</button>
-            <button className={`live-quiet-button${view === 'roster' ? ' current' : ''}`} type="button" onClick={() => { if (!confirmDiscardCalendar('open the roster')) return; clearCalendarDrafts(); setView('roster'); setError(''); }} disabled={calendarBusy}>Manage roster</button>
+            {classes.length > 1 && <label className="live-class-select"><span>Class</span><select value={selectedClass.id} disabled={rollBusy || backupBusy || historyBusy || calendarBusy || rosterBusy || classBusy || thresholdSaveBusy} onChange={(event) => { const nextId = event.target.value; if (nextId === selectedClass.id || !confirmDiscardRoll('switch classes') || !confirmDiscardCalendar('switch classes') || !confirmDiscardThreshold('switch classes')) return; clearCalendarDrafts(); setBackupConsent(false); setBackupSnapshot(null); setBackupExportedAt(null); setHistoryRecords(null); setHistoryClassId(''); setHistoryLoadedAt(null); setCalendarOverrides(null); setCalendarClassId(''); setCalendarDrafts({}); setClassId(nextId); }}>{classes.map((item) => <option key={item.id} value={item.id}>{item.name}{item.section ? ` · ${item.section}` : ''}</option>)}</select></label>}
+            <button className={`live-quiet-button${view === 'calendar' ? ' current' : ''}`} type="button" onClick={handleOpenCalendar} disabled={!isOnline || !rosterReady || calendarBusy || historyBusy || rollBusy || backupBusy || rosterBusy || classBusy || thresholdSaveBusy}>Calendar</button>
+            <button className={`live-quiet-button${view === 'history' ? ' current' : ''}`} type="button" onClick={handleOpenHistory} disabled={!isOnline || !rosterReady || historyBusy || calendarBusy || rollBusy || backupBusy || rosterBusy || classBusy || thresholdSaveBusy}>{historyBusy ? 'Loading history…' : 'History'}</button>
+            <button className={`live-quiet-button${view === 'backup' ? ' current' : ''}`} type="button" onClick={() => { if (!confirmDiscardCalendar('open backup/export')) return; clearCalendarDrafts(); setView('backup'); setError(''); }} disabled={calendarBusy || thresholdSaveBusy}>Backup &amp; export</button>
+            <button className={`live-quiet-button${view === 'roster' ? ' current' : ''}`} type="button" onClick={() => { if (!confirmDiscardCalendar('open the roster')) return; clearCalendarDrafts(); setView('roster'); setError(''); }} disabled={calendarBusy || thresholdSaveBusy}>Manage roster</button>
           </div>
         </div>
 
@@ -731,8 +961,8 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
         {!isOnline && <Notice tone="error">You’re offline. Attendance marking and Firestore writes are disabled until the connection returns; this app does not queue rolls offline.</Notice>}
 
         <div className="live-tabs" role="tablist" aria-label="Class workspace sections">
-          <button type="button" role="tab" aria-selected={view === 'attendance'} className={view === 'attendance' ? 'active' : ''} onClick={() => { if (!confirmDiscardCalendar('return to attendance')) return; clearCalendarDrafts(); setView('attendance'); setError(''); }} disabled={calendarBusy}>Attendance</button>
-          <button type="button" role="tab" aria-selected={view === 'roster'} className={view === 'roster' ? 'active' : ''} onClick={() => { if (!confirmDiscardCalendar('open the roster')) return; clearCalendarDrafts(); setView('roster'); setError(''); }} disabled={calendarBusy}>Roster <span>{activeStudents.length}</span></button>
+          <button type="button" role="tab" aria-selected={view === 'attendance'} className={view === 'attendance' ? 'active' : ''} onClick={() => { if (!confirmDiscardCalendar('return to attendance')) return; clearCalendarDrafts(); setView('attendance'); setError(''); }} disabled={calendarBusy || thresholdSaveBusy}>Attendance</button>
+          <button type="button" role="tab" aria-selected={view === 'roster'} className={view === 'roster' ? 'active' : ''} onClick={() => { if (!confirmDiscardCalendar('open the roster')) return; clearCalendarDrafts(); setView('roster'); setError(''); }} disabled={calendarBusy || thresholdSaveBusy}>Roster <span>{activeStudents.length}</span></button>
         </div>
 
         {rosterPending ? (
@@ -832,27 +1062,45 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
           <section className="live-panel live-history-panel">
             <div className="live-panel-heading">
               <div><span className="live-eyebrow">SAVED ROLLS · MORNING / EVENING</span><h2>Attendance history</h2><p>Each college day is grouped once, while its saved morning and evening rolls remain visible separately.</p></div>
-              <button className="live-secondary-button" type="button" onClick={handleOpenHistory} disabled={!isOnline || !rosterReady || historyBusy || calendarBusy || rollBusy || backupBusy || rosterBusy || classBusy}>{historyBusy ? 'Refreshing…' : 'Refresh history'}</button>
+              <button className="live-secondary-button" type="button" onClick={handleOpenHistory} disabled={!isOnline || !rosterReady || historyBusy || calendarBusy || rollBusy || backupBusy || rosterBusy || classBusy || thresholdSaveBusy}>{historyBusy ? 'Refreshing…' : 'Refresh history'}</button>
             </div>
             <div className="live-history-content">
-              <div className="live-history-note"><strong>History only for now.</strong> The 75% warning is withheld until the college term dates, normal working weekdays, and rule for differing morning/evening statuses on one day are confirmed.</div>
+              <div className="live-history-note"><strong>Teacher-reviewed calculation.</strong> Configure the college’s real term, weekdays, session rule, and leave policy. No percentage is shown unless the calendar is confirmed and every required roll and status is present.</div>
               {historyBusy ? (
-                <div className="live-loading small"><span className="live-spinner" /> Loading saved attendance history…</div>
+                <div className="live-loading small"><span className="live-spinner" /> Loading saved attendance history and calculation settings…</div>
               ) : historyRecords === null || historyClassId !== selectedClass.id ? (
                 <div className="live-empty-inline">History could not be loaded. Check the connection/rules, then retry.</div>
-              ) : historyRecords.length === 0 ? (
-                <div className="live-empty-roster"><span className="live-empty-mark">—</span><h2>No saved attendance rolls yet</h2><p>Once a morning or evening roll is saved, it will appear here by date.</p></div>
               ) : (
-                <div className="live-history-days">
-                  {historyGroups.map((day) => (
-                    <section className="live-history-day" key={day.dateISO}>
-                      <div className="live-history-day-heading"><h3>{displayDate(day.dateISO)}</h3><span className="live-count-chip">{day.rolls.length} roll{day.rolls.length === 1 ? '' : 's'}</span></div>
-                      <div className="live-history-rolls">
-                        {day.rolls.map((roll) => <HistoryRollCard key={roll.id} roll={roll} students={activeStudents} />)}
-                      </div>
-                    </section>
-                  ))}
-                </div>
+                <>
+                  <AttendanceThresholdPanel
+                    ready={thresholdDataReady}
+                    loadError={thresholdLoadError}
+                    savedSettings={thresholdSettings}
+                    form={thresholdForm}
+                    formDirty={thresholdFormDirty}
+                    saveBusy={thresholdSaveBusy}
+                    canSave={thresholdCanSave}
+                    result={attendanceThresholdResult}
+                    todayISO={todayISO}
+                    onFieldChange={(field, value) => setThresholdForm((current) => ({ ...current, [field]: value }))}
+                    onSave={handleSaveAttendanceThreshold}
+                    onDiscard={discardAttendanceThresholdEdits}
+                  />
+                  {historyRecords.length === 0 ? (
+                    <div className="live-empty-roster"><span className="live-empty-mark">—</span><h2>No saved attendance rolls yet</h2><p>Once a morning or evening roll is saved, it will appear here by date. Percentage review will remain blocked until the configured tracking period has complete rolls.</p></div>
+                  ) : (
+                    <div className="live-history-days">
+                      {historyGroups.map((day) => (
+                        <section className="live-history-day" key={day.dateISO}>
+                          <div className="live-history-day-heading"><h3>{displayDate(day.dateISO)}</h3><span className="live-count-chip">{day.rolls.length} roll{day.rolls.length === 1 ? '' : 's'}</span></div>
+                          <div className="live-history-rolls">
+                            {day.rolls.map((roll) => <HistoryRollCard key={roll.id} roll={roll} students={activeStudents} />)}
+                          </div>
+                        </section>
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
               {historyLoadedAt && <div className="live-backup-foot">Loaded from Firestore {historyLoadedAt.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}. Refresh to include newer rolls.</div>}
             </div>
@@ -860,11 +1108,11 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
         ) : view === 'backup' ? (
           <section className="live-panel live-backup-panel">
             <div className="live-panel-heading">
-              <div><span className="live-eyebrow">PRIVATE DOWNLOAD · NO CLOUD UPLOAD</span><h2>Export &amp; backup</h2><p>Prepare a snapshot of saved roster, attendance, and teacher calendar changes.</p></div>
-              <span className="live-count-chip">{backupSnapshot ? `${backupSnapshot.attendance.length} rolls · ${backupSnapshot.calendar.length} calendar edits` : `${students.length} students`}</span>
+              <div><span className="live-eyebrow">PRIVATE DOWNLOAD · NO CLOUD UPLOAD</span><h2>Export &amp; backup</h2><p>Prepare a snapshot of saved roster, attendance, calendar changes, and percentage settings.</p></div>
+              <span className="live-count-chip">{backupSnapshot ? `${backupSnapshot.attendance.length} rolls · ${backupSnapshot.calendar.length} calendar edits · ${backupSnapshot.attendanceThreshold ? '75% rules saved' : 'no 75% rules'}` : `${students.length} students`}</span>
             </div>
             <div className="live-backup-content">
-              <div className="live-backup-warning"><strong>Student data leaves the app as a file.</strong><span>Downloads contain names, roll numbers, attendance, and teacher calendar overrides. They are not sent to another service. Store them only in a college-approved, access-controlled location.</span></div>
+              <div className="live-backup-warning"><strong>Student data leaves the app as a file.</strong><span>Downloads contain names, roll numbers, attendance, teacher calendar overrides, and any saved percentage rules. They are not sent to another service. Store them only in a college-approved, access-controlled location.</span></div>
               <label className="live-consent-check live-backup-consent"><input type="checkbox" checked={backupConsent} onChange={(event) => setBackupConsent(event.target.checked)} /><span>I’m authorized to create and store a local copy of these saved class records.</span></label>
               <div className="live-actions">
                 <button className="live-primary-button" type="button" onClick={prepareBackupSnapshot} disabled={!isOnline || !rosterReady || !backupConsent || backupBusy || rollBusy || rosterBusy || classBusy || historyBusy || calendarBusy}>{backupBusy ? 'Preparing snapshot…' : backupSnapshot ? 'Refresh snapshot' : 'Prepare snapshot'}</button>
@@ -873,8 +1121,8 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
                   <button className="live-secondary-button" type="button" onClick={downloadJsonBackupFile}>Download JSON backup</button>
                 </>}
               </div>
-              {backupSnapshot && backupExportedAt && <div className="live-import-preview"><strong>Saved-data snapshot ready · {backupSnapshot.students.length} roster records · {backupSnapshot.attendance.length} attendance rolls · {backupSnapshot.calendar.length} calendar edits</strong><span>Prepared {backupExportedAt.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}. It includes only records already saved in Firestore.</span></div>}
-              <div className="live-backup-foot">The CSV is a spreadsheet-friendly attendance register. The JSON file is a portable backup of this class, roster, saved rolls, and teacher calendar overrides. Bundled Puducherry defaults are part of the app, not copied into the JSON. Automatic cloud backup and restore are not implemented yet.</div>
+              {backupSnapshot && backupExportedAt && <div className="live-import-preview"><strong>Saved-data snapshot ready · {backupSnapshot.students.length} roster records · {backupSnapshot.attendance.length} attendance rolls · {backupSnapshot.calendar.length} calendar edits · {backupSnapshot.attendanceThreshold ? 'percentage rules included' : 'no percentage rules saved'}</strong><span>Prepared {backupExportedAt.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}. It includes only records already saved in Firestore.</span></div>}
+              <div className="live-backup-foot">The CSV is a spreadsheet-friendly attendance register. The JSON v2 file backs up this class, roster, saved rolls, teacher calendar overrides, and saved percentage rules. Bundled Puducherry defaults are part of the app, not copied into the JSON. Automatic cloud backup and restore are not implemented yet.</div>
               {!isOnline && <Notice tone="error">Reconnect to Firestore before preparing or downloading a fresh snapshot.</Notice>}
             </div>
           </section>

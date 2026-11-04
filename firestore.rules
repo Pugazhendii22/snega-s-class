@@ -74,6 +74,29 @@ service cloud.firestore {
         && data.updatedAt == request.time;
     }
 
+    function validAttendanceThreshold(data, classId) {
+      return data.keys().hasAll(['classId', 'teacherId', 'termStartISO', 'termEndISO', 'trackingStartISO', 'workingWeekdays', 'sessionPolicy', 'leavePolicy', 'calendarConfirmed', 'updatedAt'])
+        && data.keys().hasOnly(['classId', 'teacherId', 'termStartISO', 'termEndISO', 'trackingStartISO', 'workingWeekdays', 'sessionPolicy', 'leavePolicy', 'calendarConfirmed', 'updatedAt'])
+        && data.classId == classId
+        && data.teacherId == request.auth.uid
+        && data.termStartISO is string
+        && data.termStartISO.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && data.termEndISO is string
+        && data.termEndISO.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && data.trackingStartISO is string
+        && data.trackingStartISO.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && data.termStartISO <= data.trackingStartISO
+        && data.trackingStartISO <= data.termEndISO
+        && data.workingWeekdays is list
+        && data.workingWeekdays.size() > 0
+        && data.workingWeekdays.size() <= 7
+        && data.workingWeekdays.hasOnly([0, 1, 2, 3, 4, 5, 6])
+        && data.sessionPolicy in ['MORNING_ONLY', 'EVENING_ONLY', 'ANY_PRESENT', 'BOTH_PRESENT']
+        && data.leavePolicy in ['COUNT_NOT_PRESENT', 'EXCLUDE_FULL_DAY']
+        && data.calendarConfirmed == true
+        && data.updatedAt == request.time;
+    }
+
     match /teachers/{teacherId} {
       // Lets a signed-in teacher check only their own approval record.
       allow read: if signedIn() && request.auth.uid == teacherId;
@@ -118,6 +141,14 @@ service cloud.firestore {
           && validCalendarOverride(request.resource.data, classId, dateISO);
         // Deleting an override restores the bundled Puducherry default for that date.
         allow delete: if ownsClass(classId);
+      }
+
+      match /attendanceSettings/{settingsId} {
+        allow read: if ownsClass(classId);
+        allow create, update: if ownsClass(classId)
+          && settingsId == 'percentage'
+          && validAttendanceThreshold(request.resource.data, classId);
+        allow delete: if false;
       }
 
       match /{document=**} {

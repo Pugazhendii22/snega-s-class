@@ -63,6 +63,7 @@ try {
     await assertFails(getDoc(doc(anonymousDb, 'classes/class-a')));
     await assertFails(getDoc(doc(anonymousDb, 'classes/class-a/students/demo-01')));
     await assertFails(getDoc(doc(anonymousDb, 'classes/class-a/attendance/2026-11-04_MORNING')));
+    await assertFails(getDoc(doc(anonymousDb, 'classes/class-a/attendanceSettings/percentage')));
     await assertFails(getDoc(doc(anonymousDb, 'attendance/record-b')));
     await assertFails(getDoc(doc(anonymousDb, 'parents/parent-a')));
   });
@@ -166,6 +167,27 @@ try {
     await assertSucceeds(deleteDoc(ref));
     await assertFails(deleteDoc(doc(otherTeacherDb, 'classes/class-a/calendarOverrides/2026-12-24')));
     await assertFails(getDocs(collection(teacherDb, 'classes/class-b/calendarOverrides')));
+  });
+
+  await scenario('attendance percentage settings are owner-only, validated, and not deletable', async () => {
+    const ref = doc(teacherDb, 'classes/class-a/attendanceSettings/percentage');
+    const valid = {
+      classId: 'class-a', teacherId: 'teacher-1',
+      termStartISO: '2026-01-01', termEndISO: '2026-12-31', trackingStartISO: '2026-01-02',
+      workingWeekdays: [1, 2, 3, 4, 5], sessionPolicy: 'ANY_PRESENT',
+      leavePolicy: 'EXCLUDE_FULL_DAY', calendarConfirmed: true, updatedAt: serverTimestamp(),
+    };
+    await assertSucceeds(setDoc(ref, valid));
+    await assertSucceeds(getDoc(ref));
+    await assertSucceeds(updateDoc(ref, { leavePolicy: 'COUNT_NOT_PRESENT', updatedAt: serverTimestamp() }));
+    await assertFails(setDoc(doc(teacherDb, 'classes/class-a/attendanceSettings/other'), valid));
+    await assertFails(setDoc(doc(teacherDb, 'classes/class-a/attendanceSettings/percentage'), { ...valid, termStartISO: '2027-01-01', updatedAt: serverTimestamp() }));
+    await assertFails(setDoc(doc(teacherDb, 'classes/class-a/attendanceSettings/percentage'), { ...valid, workingWeekdays: [1, 8], updatedAt: serverTimestamp() }));
+    await assertFails(setDoc(doc(teacherDb, 'classes/class-a/attendanceSettings/percentage'), { ...valid, calendarConfirmed: false, updatedAt: serverTimestamp() }));
+    await assertFails(setDoc(doc(teacherDb, 'classes/class-a/attendanceSettings/percentage'), { ...valid, parentPhone: 'not-allowed', updatedAt: serverTimestamp() }));
+    await assertFails(setDoc(doc(otherTeacherDb, 'classes/class-a/attendanceSettings/percentage'), { ...valid, updatedAt: serverTimestamp() }));
+    await assertFails(getDoc(doc(teacherDb, 'classes/class-b/attendanceSettings/percentage')));
+    await assertFails(deleteDoc(ref));
   });
 
   await scenario('parent contact and consent paths remain inaccessible to clients', async () => {

@@ -14,6 +14,12 @@ const syntheticSnapshot = {
   calendar: [
     { id: '2026-12-24', dateISO: '2026-12-24', kind: 'HOLIDAY', label: 'College break', updatedAt: '2026-11-04T04:00:00.000Z', teacherId: 'uid-private', sourceUrl: 'private-source' },
   ],
+  attendanceThreshold: {
+    termStartISO: '2026-06-01', termEndISO: '2026-11-30', trackingStartISO: '2026-06-08',
+    workingWeekdays: [1, 2, 3, 4, 5], sessionPolicy: 'ANY_PRESENT',
+    leavePolicy: 'EXCLUDE_FULL_DAY', calendarConfirmed: true,
+    teacherId: 'uid-private', parentPhone: 'never-export', updatedAt: '2026-11-04T04:00:00.000Z',
+  },
 };
 
 test('attendance CSV is Excel-friendly, quoted, formula-safe, and contains no parent contacts', () => {
@@ -28,15 +34,20 @@ test('attendance CSV is Excel-friendly, quoted, formula-safe, and contains no pa
   assert.ok(!csv.includes('never-export'));
 });
 
-test('JSON backup is versioned and whitelists class, roster, attendance, and calendar override fields', () => {
+test('JSON backup v2 whitelists class, roster, attendance, calendar, and threshold settings', () => {
   const backup = JSON.parse(buildJsonBackup(syntheticSnapshot, new Date('2026-11-04T05:00:00.000Z')));
   assert.equal(backup.format, 'namma-class-firestore-backup');
-  assert.equal(backup.schemaVersion, 1);
+  assert.equal(backup.schemaVersion, 2);
   assert.equal(backup.exportedAt, '2026-11-04T05:00:00.000Z');
   assert.equal(backup.students[0].displayName, '=HYPERLINK("https://example.invalid")');
   assert.equal(backup.attendance[0].statuses['student-01'], 'absent');
   assert.deepEqual(backup.calendarOverrides[0], {
     id: '2026-12-24', dateISO: '2026-12-24', kind: 'HOLIDAY', label: 'College break', updatedAt: '2026-11-04T04:00:00.000Z',
+  });
+  assert.deepEqual(backup.attendanceThreshold, {
+    termStartISO: '2026-06-01', termEndISO: '2026-11-30', trackingStartISO: '2026-06-08',
+    workingWeekdays: [1, 2, 3, 4, 5], sessionPolicy: 'ANY_PRESENT',
+    leavePolicy: 'EXCLUDE_FULL_DAY', calendarConfirmed: true, updatedAt: '2026-11-04T04:00:00.000Z',
   });
   assert.ok(!JSON.stringify(backup).includes('sourceUrl'));
   assert.ok(!JSON.stringify(backup).includes('parentPhone'));

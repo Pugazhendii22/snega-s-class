@@ -7,9 +7,9 @@ A practical class tool for a working class teacher at a girls' college in Chenna
 - **Demo mode:** 60 synthetic students and local-only attendance. No real names or contacts; nothing is sent.
 - **Live mode:** teacher Google sign-in and out-of-band approval, followed by a Firestore-backed class setup, two-column roster import, and explicit-save morning/evening attendance.
 - **No student data is seeded automatically.** Student names are written only after the teacher creates a class and confirms a roster import. The live workspace can preview factual parent drafts from a complete saved roll; no parent contacts are stored and sending is not implemented.
-- **Saved-roll history:** morning/evening rolls are grouped by date, summarized, and expandable to inspect each recorded student status. The 75% warning is deliberately deferred until the college term dates, working-week pattern, and rule for differing AM/PM statuses are confirmed.
-- **Editable calendar data:** includes Puducherry/Karaikal 2026 public-holiday defaults plus official 2026 amendments. Teachers can override those dates or add college holidays/special working days per class; these edits are stored in Firestore. This is not a full term/weekday schedule and does not calculate attendance percentages.
-- **Teacher-triggered export:** prepare a saved-data snapshot and download attendance CSV or a portable JSON backup, including teacher calendar overrides. No cloud upload or restore flow is included yet.
+- **Saved-roll history and 75% review:** morning/evening rolls are grouped by date and inspectable by student. A class-scoped, teacher-configured 75% calculation counts each scheduled college date once, but shows no figures until the term, complete-tracking start, ordinary weekdays, session/leave rules, and calendar confirmation are saved and every required roll/status is present. Missing records are never inferred as absences.
+- **Editable calendar data:** includes Puducherry/Karaikal 2026 public-holiday defaults plus official amendments. Teachers can override dates or add college holidays/special working days per class in Firestore. It is not a complete college schedule; the threshold review requires the teacher to verify the whole term calendar.
+- **Teacher-triggered export:** prepare a saved-data snapshot and download attendance CSV or a versioned JSON backup, including calendar overrides and attendance-threshold settings. No cloud upload or restore flow is included yet.
 
 ## Run locally
 
@@ -41,7 +41,7 @@ The service worker caches only the application shell and static assets; it does 
 
 ## Firestore live setup
 
-Before using class, attendance, or calendar writes, publish the reviewed `firestore.rules` from this repository. The rules allow teacher-scoped class attendance reads and teacher-only calendar overrides under the owning class. Keep the Firebase project under the teacher's account and on Spark/free; do not enable billing for this step. Environment changes must be followed by a new Vercel build.
+Before using class, attendance, calendar, exports, or percentage settings, publish the reviewed `firestore.rules` from this repository. The rules allow teacher-scoped class attendance reads plus owner-only calendar overrides and threshold settings under the owning class. Keep the Firebase project under the teacher's account and on Spark/free; do not enable billing for this step. Environment changes must be followed by a new Vercel build.
 
 The app stores:
 
@@ -50,6 +50,7 @@ The app stores:
 - `/classes/{classId}/students/{studentId}` — roll number, display name, active flag, creation timestamp.
 - `/classes/{classId}/attendance/{dateISO}_{MORNING|EVENING}` — statuses, owner UID, and server timestamp.
 - `/classes/{classId}/calendarOverrides/{dateISO}` — teacher-edited holiday/working-day classification and label for a date.
+- `/classes/{classId}/attendanceSettings/percentage` — teacher-confirmed term, tracking-coverage date, ordinary weekdays, one-day session rule, leave treatment, and calendar review flag.
 
 The 2026 starter calendar is based on the [official Puducherry holiday list](https://www.py.gov.in/list-government-holidays-2026) and later [government orders/corrigenda](https://py.gov.in/gos-and-notification). It is a government-holiday seed, not an authoritative college term calendar; verify it and adjust dates in the Calendar view. The list is bundled with the app and is not auto-synced. Teacher overrides are included in the JSON backup.
 
@@ -62,7 +63,7 @@ Roster imports accept only roll number and student name columns, cap a class at 
 - Absence messages remain preview-only and parent numbers are not stored.
 - Before any real student data is entered, confirm institutional permission and use the teacher-owned Firebase project with the published rules.
 - Tamil copy is a draft and must be reviewed by a native speaker before any live use.
-- The attendance history timeline and editable 2026 Puducherry holiday data are available; percentage/75% warnings remain off until the college term, working-week pattern, and one-day AM/PM aggregation rule are confirmed. Automated/remote backup, restore, offline recovery, and pilot controls also remain future work. Current export is a teacher-triggered local download only.
+- The 75% review is still off by default. A teacher must save the actual college rules and verify the calendar; it also stays hidden if any scheduled roll or student status is missing. This is a review aid, not an official institutional calculation or an automatic parent alert. Automated/remote backup, restore, offline recovery, and pilot controls remain future work. Current export is a teacher-triggered local download only.
 
 ## Stack
 

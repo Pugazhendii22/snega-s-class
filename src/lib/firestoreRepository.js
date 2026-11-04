@@ -14,6 +14,7 @@ import {
 } from 'firebase/firestore';
 import { getFirebaseClient } from './firebaseClient.js';
 import { normaliseRollNo } from './rosterImport.js';
+import { validateAttendanceThresholdSettings } from './attendanceThreshold.js';
 
 const VALID_ROLL_TYPES = new Set(['MORNING', 'EVENING']);
 const VALID_STATUSES = new Set(['present', 'absent', 'leave']);
@@ -184,14 +185,58 @@ export async function deleteClassCalendarOverride(classId, dateISO) {
   await deleteDoc(doc(db, 'classes', id, 'calendarOverrides', date));
 }
 
+function attendanceThresholdFromData(data) {
+  if (!data) return null;
+  return {
+    termStartISO: String(data.termStartISO ?? ''),
+    termEndISO: String(data.termEndISO ?? ''),
+    trackingStartISO: String(data.trackingStartISO ?? ''),
+    workingWeekdays: Array.isArray(data.workingWeekdays) ? [...data.workingWeekdays] : [],
+    sessionPolicy: String(data.sessionPolicy ?? ''),
+    leavePolicy: String(data.leavePolicy ?? ''),
+    calendarConfirmed: data.calendarConfirmed === true,
+    updatedAt: timestampToIso(data.updatedAt),
+  };
+}
+
+export async function loadClassAttendanceThreshold(classId) {
+  const db = firestore();
+  const id = requireText(classId, 'Class ID', 1500);
+  const snapshot = await getDoc(doc(db, 'classes', id, 'attendanceSettings', 'percentage'));
+  return snapshot.exists() ? attendanceThresholdFromData(snapshot.data()) : null;
+}
+
+export async function saveClassAttendanceThreshold({ classId, teacherId, settings }) {
+  const db = firestore();
+  const id = requireText(classId, 'Class ID', 1500);
+  const authorId = requireText(teacherId, 'Teacher ID', 128);
+  const errors = validateAttendanceThresholdSettings(settings);
+  if (errors.length) throw new Error(errors[0]);
+  const safeSettings = {
+    classId: id,
+    teacherId: authorId,
+    termStartISO: settings.termStartISO,
+    termEndISO: settings.termEndISO,
+    trackingStartISO: settings.trackingStartISO,
+    workingWeekdays: [...settings.workingWeekdays].sort((a, b) => a - b),
+    sessionPolicy: settings.sessionPolicy,
+    leavePolicy: settings.leavePolicy,
+    calendarConfirmed: true,
+    updatedAt: serverTimestamp(),
+  };
+  await setDoc(doc(db, 'classes', id, 'attendanceSettings', 'percentage'), safeSettings);
+  return { ...safeSettings, updatedAt: null };
+}
+
 export async function loadClassExportSnapshot(classId) {
   const db = firestore();
   const id = requireText(classId, 'Class ID', 1500);
-  const [classSnapshot, studentSnapshots, attendanceSnapshots, calendarSnapshots] = await Promise.all([
+  const [classSnapshot, studentSnapshots, attendanceSnapshots, calendarSnapshots, thresholdSnapshot] = await Promise.all([
     getDoc(doc(db, 'classes', id)),
     getDocs(collection(db, 'classes', id, 'students')),
     getDocs(collection(db, 'classes', id, 'attendance')),
     getDocs(collection(db, 'classes', id, 'calendarOverrides')),
+    getDoc(doc(db, 'classes', id, 'attendanceSettings', 'percentage')),
   ]);
   if (!classSnapshot.exists()) throw new Error('This class could not be found for export.');
 
@@ -241,6 +286,7 @@ export async function loadClassExportSnapshot(classId) {
     students,
     attendance,
     calendar,
+    attendanceThreshold: thresholdSnapshot.exists() ? attendanceThresholdFromData(thresholdSnapshot.data()) : null,
   };
 }
 
