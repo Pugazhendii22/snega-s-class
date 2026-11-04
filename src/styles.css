@@ -749,3 +749,30 @@ body, .app-shell { background: #f4f9fd; }
   .live-footer { flex-direction: column; padding: 0 14px 16px; }
 }
 .live-quiet-button:disabled, .live-roll-switch button:disabled, .live-class-select select:disabled, .live-date-control input:disabled { cursor: not-allowed; opacity: .55; }
+
+/* Installable PWA controls and compact install guidance. */
+.pwa-install-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; padding: 0 11px; border: 1px solid #dce9dc; border-radius: 9px; color: #326c55; background: #f3f8ef; font: inherit; font-size: 10px; font-weight: 800; white-space: nowrap; cursor: pointer; }
+.pwa-install-button:hover:not(:disabled) { background: #e8f2e1; border-color: #cbdcc9; }
+.pwa-install-button:disabled { color: #738276; cursor: default; opacity: .8; }
+.pwa-install-button span { font-size: 15px; line-height: 1; }
+.pwa-install-button.compact { min-height: 31px; padding: 0 8px; font-size: 9px; }
+.firebase-gate-brand .pwa-install-button { margin-left: auto; }
+.pwa-install-backdrop { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 16px; background: rgba(26, 42, 35, .46); backdrop-filter: blur(4px); }
+.pwa-install-dialog { position: relative; width: min(470px, 100%); max-height: min(90vh, 740px); overflow: auto; padding: 27px; border: 1px solid #e4ebe5; border-radius: 16px; background: #fff; box-shadow: 0 24px 70px rgba(20, 43, 33, .25); }
+.pwa-install-dialog h2 { margin: 7px 30px 8px 0; color: #293e35; font-family: Manrope, 'DM Sans', sans-serif; font-size: 22px; line-height: 1.2; letter-spacing: -.55px; }
+.pwa-install-dialog > p { margin: 0 0 14px; color: #74847a; font-size: 11px; line-height: 1.55; }
+.pwa-install-dialog ol { display: grid; gap: 10px; padding-left: 19px; margin: 0 0 16px; color: #63756b; font-size: 10px; line-height: 1.55; }
+.pwa-install-dialog li { padding-left: 2px; }
+.pwa-install-dialog strong { color: #3c5b4b; }
+.pwa-install-dialog em { color: #315d4d; font-style: normal; font-weight: 700; }
+.pwa-dialog-close { position: absolute; top: 12px; right: 13px; display: grid; place-items: center; width: 29px; height: 29px; border: 1px solid #e6ece7; border-radius: 8px; color: #74847a; background: #fff; font-size: 20px; cursor: pointer; }
+.pwa-offline-note { padding: 11px 12px; margin: 0 0 16px; border: 1px solid #eee5cd; border-radius: 9px; color: #7c7154; background: #fffaf0; font-size: 9px; line-height: 1.5; }
+.pwa-offline-note strong { color: #806932; }
+.pwa-install-error { padding: 9px 10px; border-radius: 8px; color: #9c5148 !important; background: #fff3f0; }
+.live-status-button:disabled { cursor: not-allowed; opacity: .5; }
+@media (max-width: 480px) {
+  .live-cloud-badge { display: none; }
+  .live-topbar-right { gap: 6px; }
+  .pwa-install-button.compact { min-height: 30px; gap: 4px; padding: 0 7px; font-size: 8px; }
+  .pwa-install-dialog { padding: 23px 19px; }
+}

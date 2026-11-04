@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import PwaInstallButton from './PwaInstallButton.jsx';
 import {
   createTeacherClass,
   importClassStudents,
@@ -50,6 +51,7 @@ function LiveShell({ user, onSignOut, signOutDisabled = false, children, classNa
       <header className="live-topbar">
         <div className="live-brand"><BrandMark /><span><strong>namma</strong> class</span></div>
         <div className="live-topbar-right">
+          <PwaInstallButton compact />
           <span className="live-cloud-badge"><i /> Approved teacher</span>
           <span className="live-user-email">{user.email || 'Teacher account'}</span>
           <button className="live-quiet-button" type="button" onClick={onSignOut} disabled={signOutDisabled}>Sign out</button>
@@ -83,6 +85,7 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
   const [rollSavedAt, setRollSavedAt] = useState(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [isOnline, setIsOnline] = useState(() => typeof navigator === 'undefined' ? true : navigator.onLine);
   const [classForm, setClassForm] = useState({ name: '', section: '', yearLabel: '' });
   const [classBusy, setClassBusy] = useState(false);
   const [rosterText, setRosterText] = useState('');
@@ -208,8 +211,19 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
     return () => window.clearTimeout(timer);
   }, [notice]);
 
+  useEffect(() => {
+    const updateNetworkStatus = () => setIsOnline(navigator.onLine);
+    window.addEventListener('online', updateNetworkStatus);
+    window.addEventListener('offline', updateNetworkStatus);
+    return () => {
+      window.removeEventListener('online', updateNetworkStatus);
+      window.removeEventListener('offline', updateNetworkStatus);
+    };
+  }, []);
+
   async function handleCreateClass(event) {
     event.preventDefault();
+    if (!isOnline) return;
     setClassBusy(true);
     setError('');
     try {
@@ -238,7 +252,7 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
   }
 
   async function handleImportRoster() {
-    if (!selectedClass || !rosterReady || !rosterRows || !rosterConsent || rollBusy || rosterBusy) return;
+    if (!isOnline || !selectedClass || !rosterReady || !rosterRows || !rosterConsent || rollBusy || rosterBusy) return;
     if (!confirmDiscardRoll('import a roster')) return;
     const targetClassId = selectedClass.id;
     const importedCount = rosterRows.length;
@@ -273,19 +287,21 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
   }
 
   function changeStatus(studentId, status) {
+    if (!isOnline) return;
     setStatuses((current) => ({ ...current, [studentId]: status }));
     setRollDirty(true);
     setError('');
   }
 
   function markAllPresent() {
+    if (!isOnline) return;
     setStatuses(Object.fromEntries(activeStudents.map((student) => [student.id, 'present'])));
     setRollDirty(true);
     setError('');
   }
 
   async function handleSaveRoll() {
-    if (!selectedClass || !rosterReady || !isComplete || rollBusy) return;
+    if (!isOnline || !selectedClass || !rosterReady || !isComplete || rollBusy) return;
     setRollBusy(true);
     setError('');
     try {
@@ -350,7 +366,7 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
               <label>Year / term (optional)<input maxLength={40} value={classForm.yearLabel} onChange={(event) => setClassForm({ ...classForm, yearLabel: event.target.value })} placeholder="e.g. Year II" /></label>
             </div>
             <div className="live-safety-note"><strong>Privacy check:</strong> use this teacher-owned project only for class records approved by the college. Messaging and parent contacts remain disabled.</div>
-            <button className="live-primary-button" type="submit" disabled={classBusy}>{classBusy ? 'Creating class…' : 'Create class'}</button>
+            <button className="live-primary-button" type="submit" disabled={classBusy || !isOnline}>{classBusy ? 'Creating class…' : isOnline ? 'Create class' : 'Connect to create class'}</button>
           </form>
         </section>
       </LiveShell>
@@ -375,6 +391,7 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
         <div className="live-safety-strip"><span className="live-safe-dot" /><strong>Live records</strong><span>Saved only after you press Save roll · no automatic parent messages</span></div>
         <Notice tone="error">{error}</Notice>
         <Notice>{notice}</Notice>
+        {!isOnline && <Notice tone="error">You’re offline. Attendance marking and Firestore writes are disabled until the connection returns; this app does not queue rolls offline.</Notice>}
 
         <div className="live-tabs" role="tablist" aria-label="Class workspace sections">
           <button type="button" role="tab" aria-selected={view === 'attendance'} className={view === 'attendance' ? 'active' : ''} onClick={() => { setView('attendance'); setError(''); }}>Attendance</button>
@@ -417,7 +434,7 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
                 <label className="live-consent-check"><input type="checkbox" checked={rosterConsent} onChange={(event) => setRosterConsent(event.target.checked)} /><span>I’m authorized to store these class names in this teacher-owned Firebase project.</span></label>
                 <div className="live-actions">
                   <button className="live-secondary-button" type="button" onClick={previewRoster} disabled={!rosterText.trim() || rosterBusy}>Preview import</button>
-                  {rosterRows && <button className="live-primary-button" type="button" onClick={handleImportRoster} disabled={!rosterConsent || rosterBusy}>{rosterBusy ? 'Saving roster…' : `Save ${rosterRows.length} student${rosterRows.length === 1 ? '' : 's'}`}</button>}
+                  {rosterRows && <button className="live-primary-button" type="button" onClick={handleImportRoster} disabled={!rosterConsent || rosterBusy || !isOnline}>{rosterBusy ? 'Saving roster…' : `Save ${rosterRows.length} student${rosterRows.length === 1 ? '' : 's'}`}</button>}
                 </div>
                 {rosterRows && <div className="live-import-preview"><strong>Preview: {rosterRows.length} new record{rosterRows.length === 1 ? '' : 's'}</strong><span>{rosterRows.slice(0, 4).map((row) => `${row.rollNo} · ${row.displayName}`).join('  |  ')}{rosterRows.length > 4 ? '  …' : ''}</span></div>}
               </div>
@@ -440,7 +457,7 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
             <section className="live-panel live-attendance-panel">
               <div className="live-panel-heading">
                 <div><span className="live-eyebrow">{rollType === 'MORNING' ? 'AM CHECKPOINT' : 'PM CHECKPOINT'} · {displayDate(dateISO)}</span><h2>Mark attendance</h2><p>Review each status. No message will be sent from this workspace.</p></div>
-                <button type="button" className="live-secondary-button" onClick={markAllPresent} disabled={!rosterReady || rollBusy || activeStudents.length === 0}>Mark all present</button>
+                <button type="button" className="live-secondary-button" onClick={markAllPresent} disabled={!isOnline || !rosterReady || rollBusy || activeStudents.length === 0}>Mark all present</button>
               </div>
               <div className="live-progress"><span style={{ width: `${activeStudents.length ? (markedCount / activeStudents.length) * 100 : 0}%` }} /></div>
               <div className="live-progress-label"><span>{markedCount} of {activeStudents.length} marked</span><span>{activeStudents.length ? Math.round((markedCount / activeStudents.length) * 100) : 0}%</span></div>
@@ -450,7 +467,7 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
                     <div className="live-attendance-row" key={student.id}>
                       <div className="live-student-ident"><span className="live-roll-badge">{student.rollNo}</span><strong>{student.displayName}</strong></div>
                       <div className="live-status-buttons" role="group" aria-label={`Attendance for ${student.displayName}`}>
-                        {ATTENDANCE_STATUSES.map((item) => <button key={item.value} type="button" aria-pressed={statuses[student.id] === item.value} className={`live-status-button ${item.value} ${statuses[student.id] === item.value ? 'selected' : ''}`} onClick={() => changeStatus(student.id, item.value)}><span>{item.short}</span><em>{item.label}</em></button>)}
+                        {ATTENDANCE_STATUSES.map((item) => <button key={item.value} type="button" aria-pressed={statuses[student.id] === item.value} className={`live-status-button ${item.value} ${statuses[student.id] === item.value ? 'selected' : ''}`} disabled={!isOnline} onClick={() => changeStatus(student.id, item.value)}><span>{item.short}</span><em>{item.label}</em></button>)}
                       </div>
                     </div>
                   ))}
@@ -458,7 +475,7 @@ export default function FirestoreWorkspace({ user, onSignOut }) {
               )}
               <div className="live-save-footer">
                 <div className="live-save-caption">{rollSavedAt && !rollDirty ? `Saved to Firestore${rollSavedAt instanceof Date ? ` · ${rollSavedAt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : ''}` : rollDirty ? 'Unsaved changes on this screen' : isComplete ? 'Ready to save this roll' : `Mark ${counts.unmarked} more before saving`}</div>
-                <button className="live-primary-button" type="button" onClick={handleSaveRoll} disabled={!isComplete || !rollDirty || rollBusy}>{rollBusy ? 'Saving…' : 'Save roll'}</button>
+                <button className="live-primary-button" type="button" onClick={handleSaveRoll} disabled={!isOnline || !isComplete || !rollDirty || rollBusy}>{rollBusy ? 'Saving…' : 'Save roll'}</button>
               </div>
             </section>
 

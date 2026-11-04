@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import FirestoreWorkspace from './FirestoreWorkspace.jsx';
+import PwaInstallButton from './PwaInstallButton.jsx';
 import {
   firebaseConfigured,
   isApprovedTeacher,
@@ -22,7 +23,7 @@ function GateCard({ eyebrow, title, children }) {
   return (
     <main className="firebase-gate">
       <section className="firebase-gate-card" aria-live="polite">
-        <div className="firebase-gate-brand"><span className="firebase-gate-mark">n</span><strong>namma class</strong></div>
+        <div className="firebase-gate-brand"><span className="firebase-gate-mark">n</span><strong>namma class</strong><PwaInstallButton compact /></div>
         <div className="firebase-gate-eyebrow">{eyebrow}</div>
         <h1 className="firebase-gate-title">{title}</h1>
         <div className="firebase-gate-copy">{children}</div>

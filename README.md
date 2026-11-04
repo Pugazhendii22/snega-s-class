@@ -30,6 +30,12 @@ npm run test:rules
 
 The Firestore Emulator tests use a `demo-*` project ID and synthetic records only. They do not write to production Firebase.
 
+## Install it like an app (PWA)
+
+The production site includes a standalone install manifest, Namma Class icons, and a service worker for the static app shell. On Android/desktop, use **Install app** in the app header or the browser menu. On iPhone/iPad Safari, use **Share → Add to Home Screen**. Opening the installed icon launches without the normal browser toolbar.
+
+The service worker caches only the application shell and static assets; it does not cache Firestore records or `/api` responses. Sign-in and attendance writes still require an internet connection, and there is no offline attendance queue. The install prompt is available only on a secure HTTPS production site (localhost for development).
+
 ## Firestore live setup
 
 Before using class or attendance writes, publish the reviewed `firestore.rules` from this repository. The latest local rules add teacher-only class listing and the nested class-attendance path, including safe reads for rolls that have not been created yet. Keep the Firebase project under the teacher's account and on Spark/free; do not enable billing for this step. Environment changes must be followed by a new Vercel build.

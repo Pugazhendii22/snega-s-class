@@ -23,6 +23,10 @@ No student records are seeded automatically. No parent contacts, message sends, 
 4. In the Firebase Console, provision the approved teacher document out-of-band. The Console is sufficient; an Admin SDK/service-account key is not needed for this manual step.
 5. Create the class and import a roster only after confirming institutional permission to store those student names in the teacher-owned project. Do not include parent phone numbers in roster CSV.
 
+## PWA install and network boundary
+
+The app has a standalone manifest, generated home-screen icons, and a production-only service worker. The worker caches the app shell and static same-origin assets only; it skips `/api/` and does not intercept Firebase's cross-origin Auth/Firestore requests. A cached shell is not offline attendance: sign-in and Firestore reads/writes still need internet, and there is no offline write queue or conflict resolution.
+
 ## Known limits of this first Firestore slice
 
 - No offline write queue or conflict-resolution flow.
